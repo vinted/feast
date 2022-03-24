@@ -30,12 +30,14 @@ from tests.integration.feature_repos.integration_test_repo_config import (
 )
 from tests.integration.feature_repos.repo_configuration import (
     FULL_REPO_CONFIGS,
+    GO_CYCLE_REPO_CONFIGS,
+    GO_REPO_CONFIGS,
+    REDIS_CLUSTER_CONFIG,
     REDIS_CONFIG,
     Environment,
+    TestData,
     construct_test_environment,
-    construct_universal_data_sources,
-    construct_universal_datasets,
-    construct_universal_entities,
+    construct_universal_test_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,12 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "universal: mark tests that use the universal feature repo"
     )
+    config.addinivalue_line(
+        "markers", "goserver: mark tests that use the go feature server"
+    )
+    config.addinivalue_line(
+        "markers", "goserverlifecycle: mark tests that use the go feature server"
+    )
 
 
 def pytest_addoption(parser):
@@ -68,12 +76,26 @@ def pytest_addoption(parser):
     parser.addoption(
         "--universal", action="store_true", default=False, help="Run universal tests",
     )
+    parser.addoption(
+        "--goserver",
+        action="store_true",
+        default=False,
+        help="Run tests that use the go feature server",
+    )
+    parser.addoption(
+        "--goserverlifecycle",
+        action="store_true",
+        default=False,
+        help="Run tests on go feature server lifecycle",
+    )
 
 
 def pytest_collection_modifyitems(config, items: List[Item]):
     should_run_integration = config.getoption("--integration") is True
     should_run_benchmark = config.getoption("--benchmark") is True
     should_run_universal = config.getoption("--universal") is True
+    should_run_goserver = config.getoption("--goserver") is True
+    should_run_goserverlifecycle = config.getoption("--goserverlifecycle") is True
 
     integration_tests = [t for t in items if "integration" in t.keywords]
     if not should_run_integration:
@@ -97,6 +119,18 @@ def pytest_collection_modifyitems(config, items: List[Item]):
     if should_run_universal:
         items.clear()
         for t in universal_tests:
+            items.append(t)
+
+    goserver_tests = [t for t in items if "goserver" in t.keywords]
+    if should_run_goserver:
+        items.clear()
+        for t in goserver_tests:
+            items.append(t)
+
+    goserverlifecycle_tests = [t for t in items if "goserverlifecycle" in t.keywords]
+    if should_run_goserverlifecycle:
+        items.clear()
+        for t in goserverlifecycle_tests:
             items.append(t)
 
 
@@ -170,10 +204,44 @@ def environment(request, worker_id: str):
     return e
 
 
-@pytest.fixture()
+@pytest.fixture(
+    params=GO_REPO_CONFIGS, scope="session", ids=[str(c) for c in GO_REPO_CONFIGS]
+)
+def go_environment(request, worker_id: str):
+    e = construct_test_environment(request.param, worker_id=worker_id)
+
+    def cleanup():
+        e.feature_store.teardown()
+        if e.feature_store._go_server:
+            e.feature_store._go_server.kill_go_server_explicitly()
+
+    request.addfinalizer(cleanup)
+    return e
+
+
+@pytest.fixture(
+    params=GO_CYCLE_REPO_CONFIGS,
+    scope="session",
+    ids=[str(c) for c in GO_CYCLE_REPO_CONFIGS],
+)
+def go_cycle_environment(request, worker_id: str):
+    e = construct_test_environment(request.param, worker_id=worker_id)
+
+    def cleanup():
+        e.feature_store.teardown()
+
+    request.addfinalizer(cleanup)
+    return e
+
+
+@pytest.fixture(
+    params=[REDIS_CONFIG, REDIS_CLUSTER_CONFIG],
+    scope="session",
+    ids=[str(c) for c in [REDIS_CONFIG, REDIS_CLUSTER_CONFIG]],
+)
 def local_redis_environment(request, worker_id):
     e = construct_test_environment(
-        IntegrationTestRepoConfig(online_store=REDIS_CONFIG), worker_id=worker_id
+        IntegrationTestRepoConfig(online_store=request.param), worker_id=worker_id
     )
 
     def cleanup():
@@ -184,21 +252,33 @@ def local_redis_environment(request, worker_id):
 
 
 @pytest.fixture(scope="session")
-def universal_data_sources(request, environment):
-    entities = construct_universal_entities()
-    datasets = construct_universal_datasets(
-        entities, environment.start_date, environment.end_date
-    )
-    datasources = construct_universal_data_sources(
-        datasets, environment.data_source_creator
-    )
-
+def universal_data_sources(request, environment) -> TestData:
     def cleanup():
         # logger.info("Running cleanup in %s, Request: %s", worker_id, request.param)
         environment.data_source_creator.teardown()
 
     request.addfinalizer(cleanup)
-    return entities, datasets, datasources
+    return construct_universal_test_data(environment)
+
+
+@pytest.fixture(scope="session")
+def redis_universal_data_sources(request, local_redis_environment):
+    def cleanup():
+        # logger.info("Running cleanup in %s, Request: %s", worker_id, request.param)
+        local_redis_environment.data_source_creator.teardown()
+
+    request.addfinalizer(cleanup)
+    return construct_universal_test_data(local_redis_environment)
+
+
+@pytest.fixture(scope="session")
+def go_data_sources(request, go_environment):
+    def cleanup():
+        # logger.info("Running cleanup in %s, Request: %s", worker_id, request.param)
+        go_environment.data_source_creator.teardown()
+
+    request.addfinalizer(cleanup)
+    return construct_universal_test_data(go_environment)
 
 
 @pytest.fixture(scope="session")

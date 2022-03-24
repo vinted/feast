@@ -1,3 +1,4 @@
+import warnings
 from typing import Callable, Dict, Iterable, Optional, Tuple
 
 from feast import type_map
@@ -22,6 +23,7 @@ class SnowflakeSource(DataSource):
         created_timestamp_column: Optional[str] = "",
         field_mapping: Optional[Dict[str, str]] = None,
         date_partition_column: Optional[str] = "",
+        name: Optional[str] = None,
     ):
         """
         Creates a SnowflakeSource object.
@@ -38,9 +40,26 @@ class SnowflakeSource(DataSource):
             field_mapping (optional): A dictionary mapping of column names in this data
                 source to column names in a feature table or view.
             date_partition_column (optional): Timestamp column used for partitioning.
-
+            name (optional): Name for the source. Defaults to the table if not specified.
         """
+        if table is None and query is None:
+            raise ValueError('No "table" argument provided.')
+
+        # If no name, use the table as the default name
+        _name = name
+        if not _name:
+            if table:
+                _name = table
+            else:
+                warnings.warn(
+                    (
+                        "Starting in Feast 0.21, Feast will require either a name for a data source (if using query) or `table`."
+                    ),
+                    DeprecationWarning,
+                )
+
         super().__init__(
+            _name if _name else "",
             event_timestamp_column,
             created_timestamp_column,
             field_mapping,
@@ -50,7 +69,7 @@ class SnowflakeSource(DataSource):
         # The default Snowflake schema is named "PUBLIC".
         _schema = "PUBLIC" if (database and table and not schema) else schema
 
-        self._snowflake_options = SnowflakeOptions(
+        self.snowflake_options = SnowflakeOptions(
             database=database, schema=_schema, table=table, query=query
         )
 
@@ -76,6 +95,10 @@ class SnowflakeSource(DataSource):
             query=data_source.snowflake_options.query,
         )
 
+    # Note: Python requires redefining hash in child classes that override __eq__
+    def __hash__(self):
+        return super().__hash__()
+
     def __eq__(self, other):
         if not isinstance(other, SnowflakeSource):
             raise TypeError(
@@ -83,7 +106,8 @@ class SnowflakeSource(DataSource):
             )
 
         return (
-            self.snowflake_options.database == other.snowflake_options.database
+            self.name == other.name
+            and self.snowflake_options.database == other.snowflake_options.database
             and self.snowflake_options.schema == other.snowflake_options.schema
             and self.snowflake_options.table == other.snowflake_options.table
             and self.snowflake_options.query == other.snowflake_options.query
@@ -95,32 +119,22 @@ class SnowflakeSource(DataSource):
     @property
     def database(self):
         """Returns the database of this snowflake source."""
-        return self._snowflake_options.database
+        return self.snowflake_options.database
 
     @property
     def schema(self):
         """Returns the schema of this snowflake source."""
-        return self._snowflake_options.schema
+        return self.snowflake_options.schema
 
     @property
     def table(self):
         """Returns the table of this snowflake source."""
-        return self._snowflake_options.table
+        return self.snowflake_options.table
 
     @property
     def query(self):
         """Returns the snowflake options of this snowflake source."""
-        return self._snowflake_options.query
-
-    @property
-    def snowflake_options(self):
-        """Returns the snowflake options of this snowflake source."""
-        return self._snowflake_options
-
-    @snowflake_options.setter
-    def snowflake_options(self, _snowflake_options):
-        """Sets the snowflake options of this snowflake source."""
-        self._snowflake_options = _snowflake_options
+        return self.snowflake_options.query
 
     def to_proto(self) -> DataSourceProto:
         """

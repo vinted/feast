@@ -50,31 +50,36 @@ DUMMY_ENTITY = Entity(
 
 class FeatureView(BaseFeatureView):
     """
-    A FeatureView defines a logical grouping of serveable features.
+    A FeatureView defines a logical group of features.
 
-    Args:
-        name: Name of the group of features.
-        entities: The entities to which this group of features is associated.
+    Attributes:
+        name: The unique name of the feature view.
+        entities: The list of entities with which this group of features is associated.
         ttl: The amount of time this group of features lives. A ttl of 0 indicates that
             this group of features lives forever. Note that large ttl's or a ttl of 0
             can result in extremely computationally intensive queries.
-        input: The source of data where this group of features is stored.
-        batch_source (optional): The batch source of data where this group of features
-            is stored.
+        batch_source: The batch source of data where this group of features is stored.
         stream_source (optional): The stream source of data where this group of features
             is stored.
-        features (optional): The set of features defined as part of this FeatureView.
-        tags (optional): A dictionary of key-value pairs used for organizing
-            FeatureViews.
+        features: The list of features defined as part of this feature view.
+        online: A boolean indicating whether online retrieval is enabled for this feature
+            view.
+        description: A human-readable description.
+        tags: A dictionary of key-value pairs to store arbitrary metadata.
+        owner: The owner of the feature view, typically the email of the primary
+            maintainer.
     """
 
+    name: str
     entities: List[str]
-    tags: Optional[Dict[str, str]]
     ttl: timedelta
-    online: bool
-    input: DataSource
     batch_source: DataSource
     stream_source: Optional[DataSource]
+    features: List[Feature]
+    online: bool
+    description: str
+    tags: Dict[str, str]
+    owner: str
     materialization_intervals: List[Tuple[datetime, datetime]]
 
     @log_exceptions
@@ -83,56 +88,70 @@ class FeatureView(BaseFeatureView):
         name: str,
         entities: List[str],
         ttl: Union[Duration, timedelta],
-        input: Optional[DataSource] = None,
-        batch_source: Optional[DataSource] = None,
+        batch_source: DataSource,
         stream_source: Optional[DataSource] = None,
         features: Optional[List[Feature]] = None,
-        tags: Optional[Dict[str, str]] = None,
         online: bool = True,
+        description: str = "",
+        tags: Optional[Dict[str, str]] = None,
+        owner: str = "",
     ):
         """
         Creates a FeatureView object.
 
+        Args:
+            name: The unique name of the feature view.
+            entities: The list of entities with which this group of features is associated.
+            ttl: The amount of time this group of features lives. A ttl of 0 indicates that
+                this group of features lives forever. Note that large ttl's or a ttl of 0
+                can result in extremely computationally intensive queries.
+            batch_source: The batch source of data where this group of features is stored.
+            stream_source (optional): The stream source of data where this group of features
+                is stored.
+            features (optional): The list of features defined as part of this feature view.
+            online (optional): A boolean indicating whether online retrieval is enabled for
+                this feature view.
+            description (optional): A human-readable description.
+            tags (optional): A dictionary of key-value pairs to store arbitrary metadata.
+            owner (optional): The owner of the feature view, typically the email of the
+                primary maintainer.
+
         Raises:
             ValueError: A field mapping conflicts with an Entity or a Feature.
         """
-        if input is not None:
-            warnings.warn(
-                (
-                    "The argument 'input' is being deprecated. Please use 'batch_source' "
-                    "instead. Feast 0.13 and onwards will not support the argument 'input'."
-                ),
-                DeprecationWarning,
-            )
-
-        _input = input or batch_source
-        assert _input is not None
-
         _features = features or []
 
         cols = [entity for entity in entities] + [feat.name for feat in _features]
         for col in cols:
-            if _input.field_mapping is not None and col in _input.field_mapping.keys():
+            if (
+                batch_source.field_mapping is not None
+                and col in batch_source.field_mapping.keys()
+            ):
                 raise ValueError(
-                    f"The field {col} is mapped to {_input.field_mapping[col]} for this data source. "
-                    f"Please either remove this field mapping or use {_input.field_mapping[col]} as the "
+                    f"The field {col} is mapped to {batch_source.field_mapping[col]} for this data source. "
+                    f"Please either remove this field mapping or use {batch_source.field_mapping[col]} as the "
                     f"Entity or Feature name."
                 )
 
-        super().__init__(name, _features)
+        super().__init__(name, _features, description, tags, owner)
         self.entities = entities if entities else [DUMMY_ENTITY_NAME]
-        self.tags = tags if tags is not None else {}
 
         if isinstance(ttl, Duration):
             self.ttl = timedelta(seconds=int(ttl.seconds))
+            warnings.warn(
+                (
+                    "The option to pass a Duration object to the ttl parameter is being deprecated. "
+                    "Please pass a timedelta object instead. Feast 0.21 and onwards will not support "
+                    "Duration objects."
+                ),
+                DeprecationWarning,
+            )
         else:
             self.ttl = ttl
 
-        self.online = online
-        self.input = _input
-        self.batch_source = _input
+        self.batch_source = batch_source
         self.stream_source = stream_source
-
+        self.online = online
         self.materialization_intervals = []
 
     # Note: Python requires redefining hash in child classes that override __eq__
@@ -144,7 +163,6 @@ class FeatureView(BaseFeatureView):
             name=self.name,
             entities=self.entities,
             ttl=self.ttl,
-            input=self.input,
             batch_source=self.batch_source,
             stream_source=self.stream_source,
             features=self.features,
@@ -319,7 +337,9 @@ class FeatureView(BaseFeatureView):
             name=self.name,
             entities=self.entities,
             features=[feature.to_proto() for feature in self.features],
+            description=self.description,
             tags=self.tags,
+            owner=self.owner,
             ttl=(ttl_duration if ttl_duration is not None else None),
             online=self.online,
             batch_source=batch_source_proto,
@@ -356,7 +376,9 @@ class FeatureView(BaseFeatureView):
                 )
                 for feature in feature_view_proto.spec.features
             ],
+            description=feature_view_proto.spec.description,
             tags=dict(feature_view_proto.spec.tags),
+            owner=feature_view_proto.spec.owner,
             online=feature_view_proto.spec.online,
             ttl=(
                 None

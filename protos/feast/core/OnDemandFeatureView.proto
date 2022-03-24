@@ -18,7 +18,7 @@
 syntax = "proto3";
 package feast.core;
 
-option go_package = "github.com/feast-dev/feast/sdk/go/protos/feast/core";
+option go_package = "github.com/feast-dev/feast/go/protos/feast/core";
 option java_outer_classname = "OnDemandFeatureViewProto";
 option java_package = "feast.proto.core";
 
@@ -34,6 +34,7 @@ message OnDemandFeatureView {
     OnDemandFeatureViewMeta meta = 2;
 }
 
+// Next available id: 9
 message OnDemandFeatureViewSpec {
     // Name of the feature view. Must be unique. Not updated.
     string name = 1;
@@ -49,7 +50,14 @@ message OnDemandFeatureViewSpec {
 
     UserDefinedFunction user_defined_function = 5;
 
+    // Description of the on demand feature view.
+    string description = 6;
 
+    // User defined metadata.
+    map<string,string> tags = 7;
+
+    // Owner of the on demand feature view.
+    string owner = 8;
 }
 
 message OnDemandFeatureViewMeta {

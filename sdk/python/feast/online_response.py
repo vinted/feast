@@ -20,10 +20,12 @@ from feast.feature_view import DUMMY_ENTITY_ID
 from feast.protos.feast.serving.ServingService_pb2 import GetOnlineFeaturesResponse
 from feast.type_map import feast_value_type_to_python_type
 
+TIMESTAMP_POSTFIX: str = "__ts"
+
 
 class OnlineResponse:
     """
-    Defines a online response in feast.
+    Defines an online response in feast.
     """
 
     def __init__(self, online_response_proto: GetOnlineFeaturesResponse):
@@ -38,31 +40,40 @@ class OnlineResponse:
         for idx, val in enumerate(self.proto.metadata.feature_names.val):
             if val == DUMMY_ENTITY_ID:
                 del self.proto.metadata.feature_names.val[idx]
-                for result in self.proto.results:
-                    del result.values[idx]
-                    del result.statuses[idx]
-                    del result.event_timestamps[idx]
+                del self.proto.results[idx]
+
                 break
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, include_event_timestamps: bool = False) -> Dict[str, Any]:
         """
         Converts GetOnlineFeaturesResponse features into a dictionary form.
+
+        Args:
+        is_with_event_timestamps: bool Optionally include feature timestamps in the dictionary
         """
         response: Dict[str, List[Any]] = {}
 
-        for result in self.proto.results:
-            for idx, feature_ref in enumerate(self.proto.metadata.feature_names.val):
-                native_type_value = feast_value_type_to_python_type(result.values[idx])
-                if feature_ref not in response:
-                    response[feature_ref] = [native_type_value]
-                else:
-                    response[feature_ref].append(native_type_value)
+        for feature_ref, feature_vector in zip(
+            self.proto.metadata.feature_names.val, self.proto.results
+        ):
+            response[feature_ref] = [
+                feast_value_type_to_python_type(v) for v in feature_vector.values
+            ]
+
+            if include_event_timestamps:
+                timestamp_ref = feature_ref + TIMESTAMP_POSTFIX
+                response[timestamp_ref] = [
+                    ts.seconds for ts in feature_vector.event_timestamps
+                ]
 
         return response
 
-    def to_df(self) -> pd.DataFrame:
+    def to_df(self, include_event_timestamps: bool = False) -> pd.DataFrame:
         """
         Converts GetOnlineFeaturesResponse features into Panda dataframe form.
+
+        Args:
+        is_with_event_timestamps: bool Optionally include feature timestamps in the dataframe
         """
 
-        return pd.DataFrame(self.to_dict())
+        return pd.DataFrame(self.to_dict(include_event_timestamps))
