@@ -44,51 +44,9 @@ class KafkaOptions:
     def __init__(
         self, bootstrap_servers: str, message_format: StreamFormat, topic: str,
     ):
-        self._bootstrap_servers = bootstrap_servers
-        self._message_format = message_format
-        self._topic = topic
-
-    @property
-    def bootstrap_servers(self):
-        """
-        Returns a comma-separated list of Kafka bootstrap servers
-        """
-        return self._bootstrap_servers
-
-    @bootstrap_servers.setter
-    def bootstrap_servers(self, bootstrap_servers):
-        """
-        Sets a comma-separated list of Kafka bootstrap servers
-        """
-        self._bootstrap_servers = bootstrap_servers
-
-    @property
-    def message_format(self):
-        """
-        Returns the data format that is used to encode the feature data in Kafka messages
-        """
-        return self._message_format
-
-    @message_format.setter
-    def message_format(self, message_format):
-        """
-        Sets the data format that is used to encode the feature data in Kafka messages
-        """
-        self._message_format = message_format
-
-    @property
-    def topic(self):
-        """
-        Returns the Kafka topic to collect feature data from
-        """
-        return self._topic
-
-    @topic.setter
-    def topic(self, topic):
-        """
-        Sets the Kafka topic to collect feature data from
-        """
-        self._topic = topic
+        self.bootstrap_servers = bootstrap_servers
+        self.message_format = message_format
+        self.topic = topic
 
     @classmethod
     def from_proto(cls, kafka_options_proto: DataSourceProto.KafkaOptions):
@@ -135,51 +93,9 @@ class KinesisOptions:
     def __init__(
         self, record_format: StreamFormat, region: str, stream_name: str,
     ):
-        self._record_format = record_format
-        self._region = region
-        self._stream_name = stream_name
-
-    @property
-    def record_format(self):
-        """
-        Returns the data format used to encode the feature data in the Kinesis records.
-        """
-        return self._record_format
-
-    @record_format.setter
-    def record_format(self, record_format):
-        """
-        Sets the data format used to encode the feature data in the Kinesis records.
-        """
-        self._record_format = record_format
-
-    @property
-    def region(self):
-        """
-        Returns the AWS region of Kinesis stream
-        """
-        return self._region
-
-    @region.setter
-    def region(self, region):
-        """
-        Sets the AWS region of Kinesis stream
-        """
-        self._region = region
-
-    @property
-    def stream_name(self):
-        """
-        Returns the Kinesis stream name to obtain feature data from
-        """
-        return self._stream_name
-
-    @stream_name.setter
-    def stream_name(self, stream_name):
-        """
-        Sets the Kinesis stream name to obtain feature data from
-        """
-        self._stream_name = stream_name
+        self.record_format = record_format
+        self.region = region
+        self.stream_name = stream_name
 
     @classmethod
     def from_proto(cls, kinesis_options_proto: DataSourceProto.KinesisOptions):
@@ -218,11 +134,24 @@ class KinesisOptions:
         return kinesis_options_proto
 
 
+_DATA_SOURCE_OPTIONS = {
+    DataSourceProto.SourceType.BATCH_FILE: "feast.infra.offline_stores.file_source.FileSource",
+    DataSourceProto.SourceType.BATCH_BIGQUERY: "feast.infra.offline_stores.bigquery_source.BigQuerySource",
+    DataSourceProto.SourceType.BATCH_REDSHIFT: "feast.infra.offline_stores.redshift_source.RedshiftSource",
+    DataSourceProto.SourceType.BATCH_SNOWFLAKE: "feast.infra.offline_stores.snowflake_source.SnowflakeSource",
+    DataSourceProto.SourceType.STREAM_KAFKA: "feast.data_source.KafkaSource",
+    DataSourceProto.SourceType.STREAM_KINESIS: "feast.data_source.KinesisSource",
+    DataSourceProto.SourceType.REQUEST_SOURCE: "feast.data_source.RequestDataSource",
+    DataSourceProto.SourceType.PUSH_SOURCE: "feast.data_source.PushSource",
+}
+
+
 class DataSource(ABC):
     """
     DataSource that can be used to source features.
 
     Args:
+        name: Name of data source, which should be unique within a project
         event_timestamp_column (optional): Event timestamp column used for point in time
             joins of feature values.
         created_timestamp_column (optional): Timestamp column indicating when the row
@@ -233,36 +162,43 @@ class DataSource(ABC):
         date_partition_column (optional): Timestamp column used for partitioning.
     """
 
-    _event_timestamp_column: str
-    _created_timestamp_column: str
-    _field_mapping: Dict[str, str]
-    _date_partition_column: str
+    name: str
+    event_timestamp_column: str
+    created_timestamp_column: str
+    field_mapping: Dict[str, str]
+    date_partition_column: str
 
     def __init__(
         self,
+        name: str,
         event_timestamp_column: Optional[str] = None,
         created_timestamp_column: Optional[str] = None,
         field_mapping: Optional[Dict[str, str]] = None,
         date_partition_column: Optional[str] = None,
     ):
         """Creates a DataSource object."""
-        self._event_timestamp_column = (
+        self.name = name
+        self.event_timestamp_column = (
             event_timestamp_column if event_timestamp_column else ""
         )
-        self._created_timestamp_column = (
+        self.created_timestamp_column = (
             created_timestamp_column if created_timestamp_column else ""
         )
-        self._field_mapping = field_mapping if field_mapping else {}
-        self._date_partition_column = (
+        self.field_mapping = field_mapping if field_mapping else {}
+        self.date_partition_column = (
             date_partition_column if date_partition_column else ""
         )
+
+    def __hash__(self):
+        return hash((id(self), self.name))
 
     def __eq__(self, other):
         if not isinstance(other, DataSource):
             raise TypeError("Comparisons should only involve DataSource class objects.")
 
         if (
-            self.event_timestamp_column != other.event_timestamp_column
+            self.name != other.name
+            or self.event_timestamp_column != other.event_timestamp_column
             or self.created_timestamp_column != other.created_timestamp_column
             or self.field_mapping != other.field_mapping
             or self.date_partition_column != other.date_partition_column
@@ -270,62 +206,6 @@ class DataSource(ABC):
             return False
 
         return True
-
-    @property
-    def field_mapping(self) -> Dict[str, str]:
-        """
-        Returns the field mapping of this data source.
-        """
-        return self._field_mapping
-
-    @field_mapping.setter
-    def field_mapping(self, field_mapping):
-        """
-        Sets the field mapping of this data source.
-        """
-        self._field_mapping = field_mapping
-
-    @property
-    def event_timestamp_column(self) -> str:
-        """
-        Returns the event timestamp column of this data source.
-        """
-        return self._event_timestamp_column
-
-    @event_timestamp_column.setter
-    def event_timestamp_column(self, event_timestamp_column):
-        """
-        Sets the event timestamp column of this data source.
-        """
-        self._event_timestamp_column = event_timestamp_column
-
-    @property
-    def created_timestamp_column(self) -> str:
-        """
-        Returns the created timestamp column of this data source.
-        """
-        return self._created_timestamp_column
-
-    @created_timestamp_column.setter
-    def created_timestamp_column(self, created_timestamp_column):
-        """
-        Sets the created timestamp column of this data source.
-        """
-        self._created_timestamp_column = created_timestamp_column
-
-    @property
-    def date_partition_column(self) -> str:
-        """
-        Returns the date partition column of this data source.
-        """
-        return self._date_partition_column
-
-    @date_partition_column.setter
-    def date_partition_column(self, date_partition_column):
-        """
-        Sets the date partition column of this data source.
-        """
-        self._date_partition_column = date_partition_column
 
     @staticmethod
     @abstractmethod
@@ -342,51 +222,25 @@ class DataSource(ABC):
         Raises:
             ValueError: The type of DataSource could not be identified.
         """
-        if data_source.data_source_class_type:
+        data_source_type = data_source.type
+        if not data_source_type or (
+            data_source_type
+            not in list(_DATA_SOURCE_OPTIONS.keys())
+            + [DataSourceProto.SourceType.CUSTOM_SOURCE]
+        ):
+            raise ValueError("Could not identify the source type being added.")
+
+        if data_source_type == DataSourceProto.SourceType.CUSTOM_SOURCE:
             cls = get_data_source_class_from_type(data_source.data_source_class_type)
             return cls.from_proto(data_source)
 
-        if data_source.file_options.file_format and data_source.file_options.file_url:
-            from feast.infra.offline_stores.file_source import FileSource
-
-            data_source_obj = FileSource.from_proto(data_source)
-        elif (
-            data_source.bigquery_options.table_ref or data_source.bigquery_options.query
-        ):
-            from feast.infra.offline_stores.bigquery_source import BigQuerySource
-
-            data_source_obj = BigQuerySource.from_proto(data_source)
-        elif data_source.redshift_options.table or data_source.redshift_options.query:
-            from feast.infra.offline_stores.redshift_source import RedshiftSource
-
-            data_source_obj = RedshiftSource.from_proto(data_source)
-
-        elif data_source.snowflake_options.table or data_source.snowflake_options.query:
-            from feast.infra.offline_stores.snowflake_source import SnowflakeSource
-
-            data_source_obj = SnowflakeSource.from_proto(data_source)
-
-        elif (
-            data_source.kafka_options.bootstrap_servers
-            and data_source.kafka_options.topic
-            and data_source.kafka_options.message_format
-        ):
-            data_source_obj = KafkaSource.from_proto(data_source)
-        elif (
-            data_source.kinesis_options.record_format
-            and data_source.kinesis_options.region
-            and data_source.kinesis_options.stream_name
-        ):
-            data_source_obj = KinesisSource.from_proto(data_source)
-        else:
-            raise ValueError("Could not identify the source type being added.")
-
-        return data_source_obj
+        cls = get_data_source_class_from_type(_DATA_SOURCE_OPTIONS[data_source_type])
+        return cls.from_proto(data_source)
 
     @abstractmethod
     def to_proto(self) -> DataSourceProto:
         """
-        Converts an DataSourceProto object to its protobuf representation.
+        Converts a DataSourceProto object to its protobuf representation.
         """
         raise NotImplementedError
 
@@ -436,6 +290,7 @@ class KafkaSource(DataSource):
 
     def __init__(
         self,
+        name: str,
         event_timestamp_column: str,
         bootstrap_servers: str,
         message_format: StreamFormat,
@@ -445,12 +300,13 @@ class KafkaSource(DataSource):
         date_partition_column: Optional[str] = "",
     ):
         super().__init__(
+            name,
             event_timestamp_column,
             created_timestamp_column,
             field_mapping,
             date_partition_column,
         )
-        self._kafka_options = KafkaOptions(
+        self.kafka_options = KafkaOptions(
             bootstrap_servers=bootstrap_servers,
             message_format=message_format,
             topic=topic,
@@ -472,23 +328,10 @@ class KafkaSource(DataSource):
 
         return True
 
-    @property
-    def kafka_options(self):
-        """
-        Returns the kafka options of this data source
-        """
-        return self._kafka_options
-
-    @kafka_options.setter
-    def kafka_options(self, kafka_options):
-        """
-        Sets the kafka options of this data source
-        """
-        self._kafka_options = kafka_options
-
     @staticmethod
     def from_proto(data_source: DataSourceProto):
         return KafkaSource(
+            name=data_source.name,
             field_mapping=dict(data_source.field_mapping),
             bootstrap_servers=data_source.kafka_options.bootstrap_servers,
             message_format=StreamFormat.from_proto(
@@ -502,6 +345,7 @@ class KafkaSource(DataSource):
 
     def to_proto(self) -> DataSourceProto:
         data_source_proto = DataSourceProto(
+            name=self.name,
             type=DataSourceProto.STREAM_KAFKA,
             field_mapping=self.field_mapping,
             kafka_options=self.kafka_options.to_proto(),
@@ -517,6 +361,9 @@ class KafkaSource(DataSource):
     def source_datatype_to_feast_value_type() -> Callable[[str], ValueType]:
         return type_map.redshift_to_feast_value_type
 
+    def get_table_query_string(self) -> str:
+        raise NotImplementedError
+
 
 class RequestDataSource(DataSource):
     """
@@ -527,34 +374,15 @@ class RequestDataSource(DataSource):
         schema: Schema mapping from the input feature name to a ValueType
     """
 
-    @staticmethod
-    def source_datatype_to_feast_value_type() -> Callable[[str], ValueType]:
-        raise NotImplementedError
-
-    _name: str
-    _schema: Dict[str, ValueType]
+    name: str
+    schema: Dict[str, ValueType]
 
     def __init__(
         self, name: str, schema: Dict[str, ValueType],
     ):
         """Creates a RequestDataSource object."""
-        super().__init__()
-        self._name = name
-        self._schema = schema
-
-    @property
-    def name(self) -> str:
-        """
-        Returns the name of this data source
-        """
-        return self._name
-
-    @property
-    def schema(self) -> Dict[str, ValueType]:
-        """
-        Returns the schema for this request data source
-        """
-        return self._schema
+        super().__init__(name)
+        self.schema = schema
 
     def validate(self, config: RepoConfig):
         pass
@@ -570,20 +398,27 @@ class RequestDataSource(DataSource):
         schema = {}
         for key in schema_pb.keys():
             schema[key] = ValueType(schema_pb.get(key))
-        return RequestDataSource(
-            name=data_source.request_data_options.name, schema=schema
-        )
+        return RequestDataSource(name=data_source.name, schema=schema)
 
     def to_proto(self) -> DataSourceProto:
         schema_pb = {}
-        for key, value in self._schema.items():
+        for key, value in self.schema.items():
             schema_pb[key] = value.value
-        options = DataSourceProto.RequestDataOptions(name=self._name, schema=schema_pb)
+        options = DataSourceProto.RequestDataOptions(schema=schema_pb)
         data_source_proto = DataSourceProto(
-            type=DataSourceProto.REQUEST_SOURCE, request_data_options=options
+            name=self.name,
+            type=DataSourceProto.REQUEST_SOURCE,
+            request_data_options=options,
         )
 
         return data_source_proto
+
+    def get_table_query_string(self) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    def source_datatype_to_feast_value_type() -> Callable[[str], ValueType]:
+        raise NotImplementedError
 
 
 class KinesisSource(DataSource):
@@ -598,6 +433,7 @@ class KinesisSource(DataSource):
     @staticmethod
     def from_proto(data_source: DataSourceProto):
         return KinesisSource(
+            name=data_source.name,
             field_mapping=dict(data_source.field_mapping),
             record_format=StreamFormat.from_proto(
                 data_source.kinesis_options.record_format
@@ -613,8 +449,12 @@ class KinesisSource(DataSource):
     def source_datatype_to_feast_value_type() -> Callable[[str], ValueType]:
         pass
 
+    def get_table_query_string(self) -> str:
+        raise NotImplementedError
+
     def __init__(
         self,
+        name: str,
         event_timestamp_column: str,
         created_timestamp_column: str,
         record_format: StreamFormat,
@@ -624,12 +464,13 @@ class KinesisSource(DataSource):
         date_partition_column: Optional[str] = "",
     ):
         super().__init__(
+            name,
             event_timestamp_column,
             created_timestamp_column,
             field_mapping,
             date_partition_column,
         )
-        self._kinesis_options = KinesisOptions(
+        self.kinesis_options = KinesisOptions(
             record_format=record_format, region=region, stream_name=stream_name
         )
 
@@ -643,7 +484,8 @@ class KinesisSource(DataSource):
             )
 
         if (
-            self.kinesis_options.record_format != other.kinesis_options.record_format
+            self.name != other.name
+            or self.kinesis_options.record_format != other.kinesis_options.record_format
             or self.kinesis_options.region != other.kinesis_options.region
             or self.kinesis_options.stream_name != other.kinesis_options.stream_name
         ):
@@ -651,22 +493,9 @@ class KinesisSource(DataSource):
 
         return True
 
-    @property
-    def kinesis_options(self):
-        """
-        Returns the kinesis options of this data source
-        """
-        return self._kinesis_options
-
-    @kinesis_options.setter
-    def kinesis_options(self, kinesis_options):
-        """
-        Sets the kinesis options of this data source
-        """
-        self._kinesis_options = kinesis_options
-
     def to_proto(self) -> DataSourceProto:
         data_source_proto = DataSourceProto(
+            name=self.name,
             type=DataSourceProto.STREAM_KINESIS,
             field_mapping=self.field_mapping,
             kinesis_options=self.kinesis_options.to_proto(),
@@ -677,3 +506,75 @@ class KinesisSource(DataSource):
         data_source_proto.date_partition_column = self.date_partition_column
 
         return data_source_proto
+
+
+class PushSource(DataSource):
+    """
+    PushSource that can be used to ingest features on request
+
+    Args:
+        name: Name of the push source
+        schema: Schema mapping from the input feature name to a ValueType
+    """
+
+    name: str
+    schema: Dict[str, ValueType]
+    batch_source: Optional[DataSource]
+
+    def __init__(
+        self,
+        name: str,
+        schema: Dict[str, ValueType],
+        batch_source: Optional[DataSource] = None,
+    ):
+        """Creates a PushSource object."""
+        super().__init__(name)
+        self.schema = schema
+        self.batch_source = batch_source
+
+    def validate(self, config: RepoConfig):
+        pass
+
+    def get_table_column_names_and_types(
+        self, config: RepoConfig
+    ) -> Iterable[Tuple[str, str]]:
+        pass
+
+    @staticmethod
+    def from_proto(data_source: DataSourceProto):
+        schema_pb = data_source.push_options.schema
+        schema = {}
+        for key, value in schema_pb.items():
+            schema[key] = value
+
+        batch_source = None
+        if data_source.push_options.HasField("batch_source"):
+            batch_source = DataSource.from_proto(data_source.push_options.batch_source)
+
+        return PushSource(
+            name=data_source.name, schema=schema, batch_source=batch_source
+        )
+
+    def to_proto(self) -> DataSourceProto:
+        schema_pb = {}
+        for key, value in self.schema.items():
+            schema_pb[key] = value
+        batch_source_proto = None
+        if self.batch_source:
+            batch_source_proto = self.batch_source.to_proto()
+
+        options = DataSourceProto.PushOptions(
+            schema=schema_pb, batch_source=batch_source_proto
+        )
+        data_source_proto = DataSourceProto(
+            name=self.name, type=DataSourceProto.PUSH_SOURCE, push_options=options,
+        )
+
+        return data_source_proto
+
+    def get_table_query_string(self) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    def source_datatype_to_feast_value_type() -> Callable[[str], ValueType]:
+        raise NotImplementedError

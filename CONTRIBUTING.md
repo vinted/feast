@@ -8,6 +8,16 @@ the main Feast repository:
 - [Feast Java Serving](#feast-java-serving)
 - [Feast Go Client](#feast-go-client)
 
+## Community
+See [Contribution process](https://docs.feast.dev/project/contributing) and [Community](https://docs.feast.dev/community) for details on how to get more involved in the community.
+
+A quick few highlights:
+- [RFCs](https://drive.google.com/drive/u/0/folders/0AAe8j7ZK3sxSUk9PVA)
+- [Community Slack](https://slack.feast.dev/)
+- [Feast Dev Mailing List](https://groups.google.com/g/feast-dev)
+- [Community Calendar](https://calendar.google.com/calendar/u/0?cid=ZTFsZHVhdGM3MDU3YTJucTBwMzNqNW5rajBAZ3JvdXAuY2FsZW5kYXIuZ29vZ2xlLmNvbQ)
+  - Includes biweekly community calls at 10AM PST
+
 ## Making a pull request
 
 ### Pull request checklist
@@ -20,12 +30,12 @@ A quick list of things to keep in mind as you're making changes:
 - When you make the PR
   - Make a pull request from the forked repo you made
   - Ensure you add a GitHub **label** (i.e. a kind tag to the PR (e.g. `kind/bug` or `kind/housekeeping`)) or else checks will fail.
-  - Ensure you leave a release note for any user facing changes in the PR. There is a field automatically generated in the PR request. You can write `NONE` in that field if there are no user facing changes. 
+  - Ensure you leave a release note for any user facing changes in the PR. There is a field automatically generated in the PR request. You can write `NONE` in that field if there are no user facing changes.
   - Please run tests locally before submitting a PR (e.g. for Python, the [local integration tests](#local-integration-tests))
   - Try to keep PRs smaller. This makes them easier to review.
 
 ### Forking the repo
-Fork the Feast Github repo and clone your fork locally. Then make changes to a local branch to the fork. 
+Fork the Feast Github repo and clone your fork locally. Then make changes to a local branch to the fork.
 
 See [Creating a pull request from a fork](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request-from-a-fork)
 
@@ -40,10 +50,10 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 3. On push, the pre-commit hook will run. This runs `make format` and `make lint`.
 
 ### Signing off commits
-> :warning: Warning: using the default integrations with IDEs like VSCode or IntelliJ will not sign commits. 
+> :warning: Warning: using the default integrations with IDEs like VSCode or IntelliJ will not sign commits.
 > When you submit a PR, you'll have to re-sign commits to pass the DCO check.
 
-Use git signoffs to sign your commits. See 
+Use git signoffs to sign your commits. See
 https://docs.github.com/en/github/authenticating-to-github/managing-commit-signature-verification for details
 
 Then, you can sign off commits with the `-s` flag:
@@ -121,15 +131,15 @@ There are two sets of tests you can run:
 To get local integration tests running, you'll need to have Redis setup:
 
 Redis
-1. Install Redis: [Quickstart](https://redis.io/topics/quickstart) 
-2. Run `redis-server` 
+1. Install Redis: [Quickstart](https://redis.io/topics/quickstart)
+2. Run `redis-server`
 
 Now run `make test-python-universal-local`
 
 #### Full integration tests
 To test across clouds, on top of setting up Redis, you also need GCP / AWS / Snowflake setup.
 
-> Note: you can manually control what tests are run today by inspecting 
+> Note: you can manually control what tests are run today by inspecting
 > [RepoConfiguration](https://github.com/feast-dev/feast/blob/master/sdk/python/tests/integration/feature_repos/repo_configuration.py)
 > and commenting out tests that are added to `DEFAULT_FULL_REPO_CONFIGS`
 
@@ -188,3 +198,18 @@ Unit tests for the Feast Go Client can be run as follows:
 ```sh
 go test
 ```
+
+### Testing with Github Actions workflows
+* Update your current master on your forked branch and make a pull request against your own forked master.
+* Enable workflows by going to actions and clicking `Enable Workflows`.
+    * Pushes will now run your edited workflow yaml file against your test code.
+    * Unfortunately, in order to test any github workflow changes, you must push the code to the branch and see the output in the actions tab.
+
+## Issues
+* pr-integration-tests workflow is skipped
+    * Add `ok-to-test` github label.
+* pr-integration-tests errors out with `Error: fatal: invalid refspec '+refs/pull//merge:refs/remotes/pull//merge'`
+    * This is because github actions cannot pull the branch version for some reason so just find your PR number in your pull request header and hard code it into the `uses: actions/checkout@v2` section (i.e replace `refs/pull/${{ github.event.pull_request.number }}/merge` with `refs/pull/<pr number>/merge`)
+* AWS/GCP workflow
+    * Currently still cannot test GCP/AWS workflow without setting up secrets in a forked repository.
+

@@ -14,9 +14,10 @@ on:
 
 jobs:
   build-docker-image:
-    # all jobs MUST have this if check for 'ok-to-test' or 'approved' for security purposes.
-    if: (github.event.action == 'labeled' && (github.event.label.name == 'approved' || github.event.label.name == 'ok-to-test'))
-      || (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'ok-to-test') || contains(github.event.pull_request.labels.*.name, 'approved')))
+    # all jobs MUST have this if check for 'ok-to-test' or 'approved' or 'lgtm' for security purposes.
+    if:
+      (github.event.action == 'labeled' && (github.event.label.name == 'lgtm' || github.event.label.name == 'approved' || github.event.label.name == 'ok-to-test')) ||
+      (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'ok-to-test') || contains(github.event.pull_request.labels.*.name, 'approved')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -71,9 +72,10 @@ jobs:
     outputs:
       DOCKER_IMAGE_TAG: ${{ steps.image-tag.outputs.DOCKER_IMAGE_TAG }}
   integration-test-python:
-    # all jobs MUST have this if check for 'ok-to-test' or 'approved' for security purposes.
-    if: (github.event.action == 'labeled' && (github.event.label.name == 'approved' || github.event.label.name == 'ok-to-test'))
-      || (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'ok-to-test') || contains(github.event.pull_request.labels.*.name, 'approved')))
+    # all jobs MUST have this if check for 'ok-to-test' or 'approved' or 'lgtm' for security purposes.
+    if:
+      (github.event.action == 'labeled' && (github.event.label.name == 'lgtm' || github.event.label.name == 'approved' || github.event.label.name == 'ok-to-test')) ||
+      (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'ok-to-test') || contains(github.event.pull_request.labels.*.name, 'approved')))
     needs: build-docker-image
     runs-on: ${{ matrix.os }}
     strategy:
@@ -108,6 +110,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.17.7
       - name: Set up gcloud SDK
         uses: google-github-actions/setup-gcloud@v0
         with:
@@ -144,7 +151,9 @@ jobs:
       - name: Install pip-tools
         run: pip install pip-tools
       - name: Install dependencies
-        run: make install-python-ci-dependencies
+        run: |
+          make compile-protos-go
+          make install-python-ci-dependencies
       - name: Setup Redis Cluster
         run: |
           docker pull vishnunair/docker-redis-cluster:latest

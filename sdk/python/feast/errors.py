@@ -1,4 +1,4 @@
-from typing import List, Set
+from typing import Any, List, Set
 
 from colorama import Fore, Style
 
@@ -7,6 +7,13 @@ class DataSourceNotFoundException(Exception):
     def __init__(self, path):
         super().__init__(
             f"Unable to find table at '{path}'. Please check that table exists."
+        )
+
+
+class DataSourceNoNameException(Exception):
+    def __init__(self):
+        super().__init__(
+            "Unable to infer a name for this data source. Either table or name must be specified."
         )
 
 
@@ -62,6 +69,14 @@ class RequestDataNotFoundInEntityRowsException(FeastObjectNotFoundException):
         super().__init__(
             f"Required request data source features {feature_names} not found in the entity rows, but required by feature views"
         )
+
+
+class DataSourceObjectNotFoundException(FeastObjectNotFoundException):
+    def __init__(self, name, project=None):
+        if project:
+            super().__init__(f"Data source {name} does not exist in project {project}")
+        else:
+            super().__init__(f"Data source {name} does not exist")
 
 
 class S3RegistryBucketNotExist(FeastObjectNotFoundException):
@@ -330,3 +345,10 @@ class SnowflakeIncompleteConfig(Exception):
 class SnowflakeQueryUnknownError(Exception):
     def __init__(self, query: str):
         super().__init__(f"Snowflake query failed: {query}")
+
+
+class InvalidFeaturesParameterType(Exception):
+    def __init__(self, features: Any):
+        super().__init__(
+            f"Invalid `features` parameter type {type(features)}. Expected one of List[str] and FeatureService."
+        )
