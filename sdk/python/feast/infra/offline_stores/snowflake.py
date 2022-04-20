@@ -54,7 +54,7 @@ except ImportError as e:
 
 
 class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
-    """ Offline store config for Snowflake """
+    """Offline store config for Snowflake"""
 
     type: Literal["snowflake.offline"] = "snowflake.offline"
     """ Offline store type selector"""
@@ -82,7 +82,7 @@ class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
     database: Optional[str] = None
     """ Snowflake database name """
 
-    schema_: Optional[str] = Field("PUBLIC", alias="schema")
+    schema_: Optional[str] = Field(None, alias="schema")
     """ Snowflake schema name """
 
     class Config:
@@ -128,6 +128,9 @@ class SnowflakeOfflineStore(OfflineStore):
             + '"'
         )
 
+        if data_source.snowflake_options.warehouse:
+            config.offline_store.warehouse = data_source.snowflake_options.warehouse
+
         snowflake_conn = get_snowflake_conn(config.offline_store)
 
         query = f"""
@@ -172,6 +175,9 @@ class SnowflakeOfflineStore(OfflineStore):
             )
             + '"'
         )
+
+        if data_source.snowflake_options.warehouse:
+            config.offline_store.warehouse = data_source.snowflake_options.warehouse
 
         snowflake_conn = get_snowflake_conn(config.offline_store)
 
@@ -336,7 +342,7 @@ class SnowflakeRetrievalJob(RetrievalJob):
                 )
 
     def to_snowflake(self, table_name: str) -> None:
-        """ Save dataset as a new Snowflake table """
+        """Save dataset as a new Snowflake table"""
         if self.on_demand_feature_views is not None:
             transformed_df = self.to_df()
 

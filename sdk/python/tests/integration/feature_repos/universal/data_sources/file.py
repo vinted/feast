@@ -21,15 +21,15 @@ from tests.integration.feature_repos.universal.data_source_creator import (
 class FileDataSourceCreator(DataSourceCreator):
     files: List[Any]
 
-    def __init__(self, project_name: str):
-        self.project_name = project_name
+    def __init__(self, project_name: str, *args, **kwargs):
+        super().__init__(project_name)
         self.files = []
 
     def create_data_source(
         self,
         df: pd.DataFrame,
         destination_name: str,
-        event_timestamp_column="ts",
+        timestamp_field="ts",
         created_timestamp_column="created_ts",
         field_mapping: Dict[str, str] = None,
     ) -> DataSource:
@@ -46,9 +46,8 @@ class FileDataSourceCreator(DataSourceCreator):
         return FileSource(
             file_format=ParquetFormat(),
             path=f"{f.name}",
-            event_timestamp_column=event_timestamp_column,
+            timestamp_field=timestamp_field,
             created_timestamp_column=created_timestamp_column,
-            date_partition_column="",
             field_mapping=field_mapping or {"ts_1": "ts"},
         )
 
@@ -114,7 +113,7 @@ class S3FileDataSourceCreator(DataSourceCreator):
         df: pd.DataFrame,
         destination_name: Optional[str] = None,
         suffix: Optional[str] = None,
-        event_timestamp_column="ts",
+        timestamp_field="ts",
         created_timestamp_column="created_ts",
         field_mapping: Dict[str, str] = None,
     ) -> DataSource:
@@ -128,9 +127,8 @@ class S3FileDataSourceCreator(DataSourceCreator):
         return FileSource(
             file_format=ParquetFormat(),
             path=f"s3://{self.bucket}/{filename}",
-            event_timestamp_column=event_timestamp_column,
+            timestamp_field=timestamp_field,
             created_timestamp_column=created_timestamp_column,
-            date_partition_column="",
             field_mapping=field_mapping or {"ts_1": "ts"},
             s3_endpoint_override=f"http://{host}:{port}",
         )

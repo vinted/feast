@@ -17,9 +17,9 @@ from tests.integration.feature_repos.universal.data_source_creator import (
 class BigQueryDataSourceCreator(DataSourceCreator):
     dataset: Optional[Dataset] = None
 
-    def __init__(self, project_name: str):
+    def __init__(self, project_name: str, *args, **kwargs):
+        super().__init__(project_name)
         self.client = bigquery.Client()
-        self.project_name = project_name
         self.gcp_project = self.client.project
         self.dataset_id = f"{self.gcp_project}.{project_name}"
 
@@ -53,7 +53,7 @@ class BigQueryDataSourceCreator(DataSourceCreator):
         self,
         df: pd.DataFrame,
         destination_name: str,
-        event_timestamp_column="ts",
+        timestamp_field="ts",
         created_timestamp_column="created_ts",
         field_mapping: Dict[str, str] = None,
         **kwargs,
@@ -74,10 +74,9 @@ class BigQueryDataSourceCreator(DataSourceCreator):
         self.tables.append(destination_name)
 
         return BigQuerySource(
-            table_ref=destination_name,
-            event_timestamp_column=event_timestamp_column,
+            table=destination_name,
+            timestamp_field=timestamp_field,
             created_timestamp_column=created_timestamp_column,
-            date_partition_column="",
             field_mapping=field_mapping or {"ts_1": "ts"},
         )
 
@@ -85,7 +84,7 @@ class BigQueryDataSourceCreator(DataSourceCreator):
         table = self.get_prefixed_table_name(
             f"persisted_{str(uuid.uuid4()).replace('-', '_')}"
         )
-        return SavedDatasetBigQueryStorage(table_ref=table)
+        return SavedDatasetBigQueryStorage(table=table)
 
     def get_prefixed_table_name(self, suffix: str) -> str:
         return f"{self.client.project}.{self.project_name}.{suffix}"

@@ -1,17 +1,11 @@
 import re
 from typing import List
 
-from feast import (
-    BigQuerySource,
-    Entity,
-    Feature,
-    FileSource,
-    RedshiftSource,
-    SnowflakeSource,
-)
-from feast.data_source import DataSource, RequestDataSource
+from feast import BigQuerySource, Entity, FileSource, RedshiftSource, SnowflakeSource
+from feast.data_source import DataSource, PushSource, RequestSource
 from feast.errors import RegistryInferenceFailure
 from feast.feature_view import FeatureView
+from feast.field import Field, from_value_type
 from feast.repo_config import RepoConfig
 from feast.value_type import ValueType
 
@@ -78,12 +72,11 @@ def update_data_sources_with_inferred_event_timestamp_col(
     ERROR_MSG_PREFIX = "Unable to infer DataSource event_timestamp_column"
 
     for data_source in data_sources:
-        if isinstance(data_source, RequestDataSource):
+        if isinstance(data_source, RequestSource):
             continue
-        if (
-            data_source.event_timestamp_column is None
-            or data_source.event_timestamp_column == ""
-        ):
+        if isinstance(data_source, PushSource):
+            data_source = data_source.batch_source
+        if data_source.timestamp_field is None or data_source.timestamp_field == "":
             # prepare right match pattern for data source
             ts_column_type_regex_pattern = ""
             # TODO(adchia): Move Spark source inference out of this logic
@@ -102,7 +95,7 @@ def update_data_sources_with_inferred_event_timestamp_col(
                 raise RegistryInferenceFailure(
                     "DataSource",
                     f"""
-                    DataSource inferencing of event_timestamp_column is currently only supported
+                    DataSource inferencing of timestamp_field is currently only supported
                     for FileSource, SparkSource, BigQuerySource, RedshiftSource, and SnowflakeSource.
                     Attempting to infer from {data_source}.
                     """,
@@ -117,7 +110,7 @@ def update_data_sources_with_inferred_event_timestamp_col(
             )
 
             # loop through table columns to find singular match
-            event_timestamp_column, matched_flag = None, False
+            timestamp_field, matched_flag = None, False
             for (
                 col_name,
                 col_datatype,
@@ -132,10 +125,10 @@ def update_data_sources_with_inferred_event_timestamp_col(
                             """,
                         )
                     matched_flag = True
-                    event_timestamp_column = col_name
+                    timestamp_field = col_name
             if matched_flag:
-                assert event_timestamp_column
-                data_source.event_timestamp_column = event_timestamp_column
+                assert timestamp_field
+                data_source.timestamp_field = timestamp_field
             else:
                 raise RegistryInferenceFailure(
                     "DataSource",
@@ -159,21 +152,24 @@ def update_feature_views_with_inferred_features(
         config: The config for the current feature store.
     """
     entity_name_to_join_key_map = {entity.name: entity.join_key for entity in entities}
+    join_keys = entity_name_to_join_key_map.values()
 
     for fv in fvs:
+        # First drop all Entity fields. Then infer features if necessary.
+        fv.schema = [field for field in fv.schema if field.name not in join_keys]
+        fv.features = [field for field in fv.features if field.name not in join_keys]
+
         if not fv.features:
             columns_to_exclude = {
-                fv.batch_source.event_timestamp_column,
+                fv.batch_source.timestamp_field,
                 fv.batch_source.created_timestamp_column,
             } | {
                 entity_name_to_join_key_map[entity_name] for entity_name in fv.entities
             }
 
-            if fv.batch_source.event_timestamp_column in fv.batch_source.field_mapping:
+            if fv.batch_source.timestamp_field in fv.batch_source.field_mapping:
                 columns_to_exclude.add(
-                    fv.batch_source.field_mapping[
-                        fv.batch_source.event_timestamp_column
-                    ]
+                    fv.batch_source.field_mapping[fv.batch_source.timestamp_field]
                 )
             if (
                 fv.batch_source.created_timestamp_column
@@ -198,14 +194,18 @@ def update_feature_views_with_inferred_features(
                         if col_name in fv.batch_source.field_mapping
                         else col_name
                     )
-                    fv.features.append(
-                        Feature(
-                            feature_name,
+                    field = Field(
+                        name=feature_name,
+                        dtype=from_value_type(
                             fv.batch_source.source_datatype_to_feast_value_type()(
                                 col_datatype
-                            ),
-                        )
+                            )
+                        ),
                     )
+                    # Note that schema and features are two different attributes of a
+                    # FeatureView, and that features should be present in both.
+                    fv.schema.append(field)
+                    fv.features.append(field)
 
             if not fv.features:
                 raise RegistryInferenceFailure(

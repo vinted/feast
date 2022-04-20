@@ -20,6 +20,7 @@ OS := linux
 ifeq ($(shell uname -s), Darwin)
 	OS = osx
 endif
+TRINO_VERSION ?= 376
 
 # General
 
@@ -31,11 +32,11 @@ test: test-python test-java test-go
 
 protos: compile-protos-go compile-protos-python compile-protos-docs
 
-build: protos build-java build-docker build-html
+build: protos build-java build-docker
 
 # Python SDK
 
-install-python-ci-dependencies: install-go-proto-dependencies
+install-python-ci-dependencies: install-go-proto-dependencies install-go-ci-dependencies
 	cd sdk/python && python -m piptools sync requirements/py$(PYTHON)-ci-requirements.txt
 	cd sdk/python && COMPILE_GO=true python setup.py develop
 
@@ -67,6 +68,9 @@ test-python:
 test-python-integration:
 	FEAST_USAGE=False IS_TEST=True python -m pytest -n 8 --integration sdk/python/tests
 
+test-python-integration-container:
+	FEAST_USAGE=False IS_TEST=True FEAST_LOCAL_ONLINE_CONTAINER=True python -m pytest -n 8 --integration sdk/python/tests
+
 test-python-universal-contrib:
 	PYTHONPATH='.' FULL_REPO_CONFIGS_MODULE=sdk.python.feast.infra.offline_stores.contrib.contrib_repo_configuration FEAST_USAGE=False IS_TEST=True python -m pytest -n 8 --integration --universal sdk/python/tests
 
@@ -76,13 +80,8 @@ test-python-universal-local:
 test-python-universal:
 	FEAST_USAGE=False IS_TEST=True python -m pytest -n 8 --integration --universal sdk/python/tests
 
-test-python-go-server:
-	go build -o ${ROOT_DIR}/sdk/python/feast/binaries/server github.com/feast-dev/feast/go/cmd/server
-	FEAST_USAGE=False IS_TEST=True python -m pytest -n 8 --integration --goserver sdk/python/tests
-
-test-python-go-server-lifecycle:
-	go build -o ${ROOT_DIR}/sdk/python/feast/binaries/server github.com/feast-dev/feast/go/cmd/server
-	FEAST_USAGE=False IS_TEST=True python -m pytest -n 8 --integration --goserverlifecycle sdk/python/tests
+test-python-go-server: compile-go-lib
+	FEAST_USAGE=False IS_TEST=True FEAST_GO_FEATURE_RETRIEVAL=True pytest --integration --goserver sdk/python/tests
 
 format-python:
 	# Sort
@@ -123,23 +122,43 @@ build-java:
 build-java-no-tests:
 	${MVN} --no-transfer-progress -Dmaven.javadoc.skip=true -Dgpg.skip -DskipUTs=true -DskipITs=true -Drevision=${REVISION} clean package
 
-# Go SDK
+# Trino plugin
+start-trino-locally:
+	cd ${ROOT_DIR}; docker run --detach --rm -p 8080:8080 --name trino -v ${ROOT_DIR}/sdk/python/feast/infra/offline_stores/contrib/trino_offline_store/test_config/properties/:/etc/catalog/:ro trinodb/trino:${TRINO_VERSION}
+	sleep 15
+
+test-trino-plugin-locally:
+	cd ${ROOT_DIR}/sdk/python; FULL_REPO_CONFIGS_MODULE=feast.infra.offline_stores.contrib.trino_offline_store.test_config.manual_tests FEAST_USAGE=False IS_TEST=True python -m pytest --integration --universal tests/
+
+kill-trino-locally:
+	cd ${ROOT_DIR}; docker stop trino
+
+# Go SDK & embedded
 
 install-go-proto-dependencies:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26.0
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0
 
+install-go-ci-dependencies:
+	# ToDo: currently gopy installation doesn't work w/o explicit go get in the next line
+	# ToDo: there should be a better way to install gopy
+	go get github.com/go-python/gopy
+	go install golang.org/x/tools/cmd/goimports
+	go install github.com/go-python/gopy
+	python -m pip install pybindgen==0.22.0
+
 install-protoc-dependencies:
-	pip install grpcio-tools==1.34.0
+	pip install grpcio-tools==1.44.0 mypy-protobuf==3.1.0
 
 compile-protos-go: install-go-proto-dependencies install-protoc-dependencies
 	cd sdk/python && python setup.py build_go_protos
 
-compile-go-feature-server: compile-protos-go
-	go mod tidy
-	go build -o ${ROOT_DIR}/sdk/python/feast/binaries/server github.com/feast-dev/feast/go/cmd/server
+compile-go-lib: install-go-proto-dependencies install-go-ci-dependencies
+	cd sdk/python && python setup.py build_go_lib
 
+# Needs feast package to setup the feature store
 test-go: compile-protos-go
+	pip install -e "sdk/python[ci]"
 	go test ./...
 
 format-go:

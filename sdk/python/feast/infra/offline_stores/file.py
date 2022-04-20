@@ -31,7 +31,7 @@ from feast.usage import log_exceptions_and_usage
 
 
 class FileOfflineStoreConfig(FeastConfigBaseModel):
-    """ Offline store config for local (file-based) store """
+    """Offline store config for local (file-based) store"""
 
     type: Literal["file"] = "file"
     """ Offline store type selector"""
@@ -77,9 +77,8 @@ class FileRetrievalJob(RetrievalJob):
 
     def persist(self, storage: SavedDatasetStorage):
         assert isinstance(storage, SavedDatasetFileStorage)
-
         filesystem, path = FileSource.create_filesystem_and_path(
-            storage.file_options.file_url, storage.file_options.s3_endpoint_override,
+            storage.file_options.uri, storage.file_options.s3_endpoint_override,
         )
 
         if path.endswith(".parquet"):
@@ -187,9 +186,7 @@ class FileOfflineStore(OfflineStore):
 
             # Load feature view data from sources and join them incrementally
             for feature_view, features in feature_views_to_features.items():
-                event_timestamp_column = (
-                    feature_view.batch_source.event_timestamp_column
-                )
+                event_timestamp_column = feature_view.batch_source.timestamp_field
                 created_timestamp_column = (
                     feature_view.batch_source.created_timestamp_column
                 )
@@ -302,11 +299,25 @@ class FileOfflineStore(OfflineStore):
                 if created_timestamp_column
                 else [event_timestamp_column]
             )
+            # try-catch block is added to deal with this issue https://github.com/dask/dask/issues/8939.
+            # TODO(kevjumba): remove try catch when fix is merged upstream in Dask.
+            try:
+                if created_timestamp_column:
+                    source_df = source_df.sort_values(by=created_timestamp_column,)
 
-            if created_timestamp_column:
-                source_df = source_df.sort_values(by=created_timestamp_column)
+                source_df = source_df.sort_values(by=event_timestamp_column)
 
-            source_df = source_df.sort_values(by=event_timestamp_column)
+            except ZeroDivisionError:
+                # Use 1 partition to get around case where everything in timestamp column is the same so the partition algorithm doesn't
+                # try to divide by zero.
+                if created_timestamp_column:
+                    source_df = source_df.sort_values(
+                        by=created_timestamp_column, npartitions=1
+                    )
+
+                source_df = source_df.sort_values(
+                    by=event_timestamp_column, npartitions=1
+                )
 
             source_df = source_df[
                 (source_df[event_timestamp_column] >= start_date)

@@ -2,12 +2,14 @@ package feast
 
 import (
 	"context"
-	"github.com/feast-dev/feast/go/protos/feast/serving"
-	"github.com/feast-dev/feast/go/protos/feast/types"
-	"github.com/stretchr/testify/assert"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/feast-dev/feast/go/internal/feast/onlinestore"
+	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/protos/feast/types"
+	"github.com/stretchr/testify/assert"
 )
 
 // Return absolute path to the test_repo registry regardless of the working directory
@@ -25,7 +27,7 @@ func getRegistryPath() map[string]interface{} {
 
 func TestNewFeatureStore(t *testing.T) {
 	t.Skip("@todo(achals): feature_repo isn't checked in yet")
-	config := RepoConfig{
+	config := registry.RepoConfig{
 		Project:  "feature_repo",
 		Registry: getRegistryPath(),
 		Provider: "local",
@@ -33,14 +35,14 @@ func TestNewFeatureStore(t *testing.T) {
 			"type": "redis",
 		},
 	}
-	fs, err := NewFeatureStore(&config)
+	fs, err := NewFeatureStore(&config, nil)
 	assert.Nil(t, err)
-	assert.IsType(t, &RedisOnlineStore{}, fs.onlineStore)
+	assert.IsType(t, &onlinestore.RedisOnlineStore{}, fs.onlineStore)
 }
 
 func TestGetOnlineFeaturesRedis(t *testing.T) {
 	t.Skip("@todo(achals): feature_repo isn't checked in yet")
-	config := RepoConfig{
+	config := registry.RepoConfig{
 		Project:  "feature_repo",
 		Registry: getRegistryPath(),
 		Provider: "local",
@@ -50,22 +52,20 @@ func TestGetOnlineFeaturesRedis(t *testing.T) {
 		},
 	}
 
-	featureViewNames := []string{"driver_hourly_stats:conv_rate",
+	featureNames := []string{"driver_hourly_stats:conv_rate",
 		"driver_hourly_stats:acc_rate",
 		"driver_hourly_stats:avg_daily_trips",
 	}
-	featureList := serving.FeatureList{Val: featureViewNames}
-	featureListRequest := serving.GetOnlineFeaturesRequest_Features{Features: &featureList}
 	entities := map[string]*types.RepeatedValue{"driver_id": {Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1001}},
 		{Val: &types.Value_Int64Val{Int64Val: 1002}},
 		{Val: &types.Value_Int64Val{Int64Val: 1003}}}},
 	}
-	request := serving.GetOnlineFeaturesRequest{Kind: &featureListRequest, Entities: entities, FullFeatureNames: true}
 
-	fs, err := NewFeatureStore(&config)
+	fs, err := NewFeatureStore(&config, nil)
 	assert.Nil(t, err)
 	ctx := context.Background()
-	response, err := fs.GetOnlineFeatures(ctx, &request)
+	response, err := fs.GetOnlineFeatures(
+		ctx, featureNames, nil, entities, map[string]*types.RepeatedValue{}, true)
 	assert.Nil(t, err)
-	assert.NotEmpty(t, response.Results)
+	assert.Len(t, response, 4) // 3 Features + 1 entity = 4 columns (feature vectors) in response
 }

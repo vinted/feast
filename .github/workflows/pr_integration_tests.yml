@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ 3.7 ]
+        python-version: [ "3.7" ]
         os: [ ubuntu-latest ]
     env:
       OS: ${{ matrix.os }}
@@ -151,9 +151,7 @@ jobs:
       - name: Install pip-tools
         run: pip install pip-tools
       - name: Install dependencies
-        run: |
-          make compile-protos-go
-          make install-python-ci-dependencies
+        run: make install-python-ci-dependencies
       - name: Setup Redis Cluster
         run: |
           docker pull vishnunair/docker-redis-cluster:latest

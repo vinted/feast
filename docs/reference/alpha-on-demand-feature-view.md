@@ -25,28 +25,32 @@ See [https://github.com/feast-dev/on-demand-feature-views-demo](https://github.c
 
 ### **Registering transformations**
 
-We register `RequestDataSource` inputs and the transform in `on_demand_feature_view`:
+We register `RequestSource` inputs and the transform in `on_demand_feature_view`:
 
 ```python
+from feast import Field, RequestSource
+from feast.types import Float64, Int64
+import pandas as pd
+
 # Define a request data source which encodes features / information only 
 # available at request time (e.g. part of the user initiated HTTP request)
-input_request = RequestDataSource(
+input_request = RequestSource(
     name="vals_to_add",
-    schema={
-        "val_to_add": ValueType.INT64,
-        "val_to_add_2": ValueType.INT64
-    }
+    schema=[
+        Field(name='val_to_add', dtype=Int64),
+        Field(name='val_to_add_2', dtype=Int64)
+    ]
 )
 
 # Use the input data and feature view features to create new features
 @on_demand_feature_view(
-   inputs={
+   sources={
        'driver_hourly_stats': driver_hourly_stats_view,
        'vals_to_add': input_request
    },
-   features=[
-     Feature(name='conv_rate_plus_val1', dtype=ValueType.DOUBLE),
-     Feature(name='conv_rate_plus_val2', dtype=ValueType.DOUBLE)
+   schema=[
+     Field(name='conv_rate_plus_val1', dtype=Float64),
+     Field(name='conv_rate_plus_val2', dtype=Float64)
    ]
 )
 def transformed_conv_rate(features_df: pd.DataFrame) -> pd.DataFrame:

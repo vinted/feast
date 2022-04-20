@@ -1,7 +1,6 @@
 import datetime
 import itertools
 import os
-import signal
 import time
 import unittest
 from datetime import timedelta
@@ -14,12 +13,13 @@ import pytest
 import requests
 from botocore.exceptions import BotoCoreError
 
-from feast import Entity, Feature, FeatureService, FeatureView, ValueType
+from feast import Entity, FeatureService, FeatureView, Field, ValueType
 from feast.errors import (
     FeatureNameCollisionError,
     RequestDataNotFoundInEntityRowsException,
 )
 from feast.online_response import TIMESTAMP_POSTFIX
+from feast.types import String
 from feast.wait import wait_retry_backoff
 from tests.integration.feature_repos.repo_configuration import (
     Environment,
@@ -122,7 +122,7 @@ def test_write_to_online_store_event_check(local_redis_environment):
         # Create Feature View
         fv1 = FeatureView(
             name="feature_view_123",
-            features=[Feature(name="string_col", dtype=ValueType.STRING)],
+            schema=[Field(name="string_col", dtype=String)],
             entities=["id"],
             batch_source=file_source,
             ttl=timedelta(minutes=5),
@@ -390,6 +390,7 @@ def test_online_retrieval_with_event_timestamps(
 
 @pytest.mark.integration
 @pytest.mark.universal
+@pytest.mark.goserver
 @pytest.mark.parametrize("full_feature_names", [True, False], ids=lambda v: str(v))
 def test_online_retrieval(environment, universal_data_sources, full_feature_names):
     fs = environment.feature_store
@@ -401,7 +402,7 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
         features=[
             feature_views.driver[["conv_rate"]],
             feature_views.driver_odfv,
-            feature_views.driver_age_request_fv,
+            feature_views.customer[["current_balance"]],
         ],
     )
     feature_service_entity_mapping = FeatureService(
@@ -467,7 +468,7 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
     global_df = datasets.global_df
 
     entity_rows = [
-        {"driver_id": d, "customer_id": c, "val_to_add": 50, "driver_age": 25}
+        {"driver_id": d, "customer_id": c, "val_to_add": 50}
         for (d, c) in zip(sample_drivers, sample_customers)
     ]
 
@@ -482,7 +483,6 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
         "order:order_is_success",
         "global_stats:num_rides",
         "global_stats:avg_ride_length",
-        "driver_age:driver_age",
     ]
     unprefixed_feature_refs = [f.rsplit(":", 1)[-1] for f in feature_refs if ":" in f]
     # Remove the on demand feature view output features, since they're not present in the source dataframe
@@ -507,22 +507,14 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
 
     assert online_features_no_conv_rate is not None
 
-    keys = online_features_dict.keys()
+    keys = set(online_features_dict.keys())
+    expected_keys = set(
+        f.replace(":", "__") if full_feature_names else f.split(":")[-1]
+        for f in feature_refs
+    ) | {"customer_id", "driver_id"}
     assert (
-        len(keys) == len(feature_refs) + 2
-    )  # Add two for the driver id and the customer id entity keys
-    for feature in feature_refs:
-        # full_feature_names does not apply to request feature views
-        if full_feature_names and feature != "driver_age:driver_age":
-            assert feature.replace(":", "__") in keys
-        else:
-            assert feature.rsplit(":", 1)[-1] in keys
-            assert (
-                "driver_stats" not in keys
-                and "customer_profile" not in keys
-                and "order" not in keys
-                and "global_stats" not in keys
-            )
+        keys == expected_keys
+    ), f"Response keys are different from expected: {keys - expected_keys} (extra) and {expected_keys - keys} (missing)"
 
     tc = unittest.TestCase()
     for i, entity_row in enumerate(entity_rows):
@@ -538,14 +530,18 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
         assert df_features["driver_id"] == online_features_dict["driver_id"][i]
         tc.assertAlmostEqual(
             online_features_dict[
-                response_feature_name("conv_rate_plus_100", full_feature_names)
+                response_feature_name(
+                    "conv_rate_plus_100", feature_refs, full_feature_names
+                )
             ][i],
             df_features["conv_rate"] + 100,
             delta=0.0001,
         )
         tc.assertAlmostEqual(
             online_features_dict[
-                response_feature_name("conv_rate_plus_val_to_add", full_feature_names)
+                response_feature_name(
+                    "conv_rate_plus_val_to_add", feature_refs, full_feature_names
+                )
             ][i],
             df_features["conv_rate"] + df_features["val_to_add"],
             delta=0.0001,
@@ -554,7 +550,9 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
             tc.assertAlmostEqual(
                 df_features[unprefixed_feature_ref],
                 online_features_dict[
-                    response_feature_name(unprefixed_feature_ref, full_feature_names)
+                    response_feature_name(
+                        unprefixed_feature_ref, feature_refs, full_feature_names
+                    )
                 ][i],
                 delta=0.0001,
             )
@@ -563,17 +561,17 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
     missing_responses_dict = get_online_features_dict(
         environment=environment,
         features=feature_refs,
-        entity_rows=[
-            {"driver_id": 0, "customer_id": 0, "val_to_add": 100, "driver_age": 125}
-        ],
+        entity_rows=[{"driver_id": 0, "customer_id": 0, "val_to_add": 100}],
         full_feature_names=full_feature_names,
     )
     assert missing_responses_dict is not None
     for unprefixed_feature_ref in unprefixed_feature_refs:
-        if unprefixed_feature_ref not in {"num_rides", "avg_ride_length", "driver_age"}:
+        if unprefixed_feature_ref not in {"num_rides", "avg_ride_length"}:
             tc.assertIsNone(
                 missing_responses_dict[
-                    response_feature_name(unprefixed_feature_ref, full_feature_names)
+                    response_feature_name(
+                        unprefixed_feature_ref, feature_refs, full_feature_names
+                    )
                 ][0]
             )
 
@@ -583,15 +581,6 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
             environment=environment,
             features=feature_refs,
             entity_rows=[{"driver_id": 0, "customer_id": 0}],
-            full_feature_names=full_feature_names,
-        )
-
-    # Also with request data
-    with pytest.raises(RequestDataNotFoundInEntityRowsException):
-        get_online_features_dict(
-            environment=environment,
-            features=feature_refs,
-            entity_rows=[{"driver_id": 0, "customer_id": 0, "val_to_add": 20}],
             full_feature_names=full_feature_names,
         )
 
@@ -607,12 +596,7 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
     )
 
     entity_rows = [
-        {
-            "driver_id": _driver,
-            "customer_id": _customer,
-            "origin_id": origin,
-            "destination_id": destination,
-        }
+        {"origin_id": origin, "destination_id": destination}
         for (_driver, _customer, origin, destination) in zip(
             sample_drivers, sample_customers, *sample_location_pairs
         )
@@ -622,9 +606,6 @@ def test_online_retrieval(environment, universal_data_sources, full_feature_name
         feature_service_entity_mapping,
         entity_rows,
         full_feature_names,
-        drivers_df,
-        customers_df,
-        orders_df,
         origins_df,
         destinations_df,
     )
@@ -715,364 +696,15 @@ def test_online_store_cleanup(environment, universal_data_sources):
     assert all(v is None for v in online_features["value"])
 
 
-@pytest.mark.skip
-@pytest.mark.integration
-@pytest.mark.goserver
-@pytest.mark.parametrize("full_feature_names", [True, False], ids=lambda v: str(v))
-def test_online_retrieval_with_go_server(
-    go_environment, go_data_sources, full_feature_names
-):
-    fs = go_environment.feature_store
-    entities, datasets, data_sources = go_data_sources
-    feature_views = construct_universal_feature_views(data_sources, with_odfv=False)
+def response_feature_name(
+    feature: str, feature_refs: List[str], full_feature_names: bool
+) -> str:
+    if not full_feature_names:
+        return feature
 
-    feature_service_entity_mapping = FeatureService(
-        name="entity_mapping",
-        features=[
-            feature_views.location.with_name("origin").with_join_key_map(
-                {"location_id": "origin_id"}
-            ),
-            feature_views.location.with_name("destination").with_join_key_map(
-                {"location_id": "destination_id"}
-            ),
-        ],
-    )
-
-    feast_objects = []
-    feast_objects.extend(
-        [feature_view for feature_view in feature_views.values() if feature_view]
-    )
-    feast_objects.extend(
-        [driver(), customer(), location(), feature_service_entity_mapping]
-    )
-    fs.apply(feast_objects)
-    fs.materialize(
-        go_environment.start_date - timedelta(days=1),
-        go_environment.end_date + timedelta(days=1),
-    )
-
-    entity_sample = datasets.orders_df.sample(10)[
-        ["customer_id", "driver_id", "order_id", "event_timestamp"]
-    ]
-    orders_df = datasets.orders_df[
-        (
-            datasets.orders_df["customer_id"].isin(entity_sample["customer_id"])
-            & datasets.orders_df["driver_id"].isin(entity_sample["driver_id"])
-        )
-    ]
-
-    sample_drivers = entity_sample["driver_id"]
-    drivers_df = datasets.driver_df[
-        datasets.driver_df["driver_id"].isin(sample_drivers)
-    ]
-
-    sample_customers = entity_sample["customer_id"]
-    customers_df = datasets.customer_df[
-        datasets.customer_df["customer_id"].isin(sample_customers)
-    ]
-
-    location_pairs = np.array(list(itertools.permutations(entities.location_vals, 2)))
-    sample_location_pairs = location_pairs[
-        np.random.choice(len(location_pairs), 10)
-    ].T.tolist()
-    origins_df = datasets.location_df[
-        datasets.location_df["location_id"].isin(sample_location_pairs[0])
-    ]
-    destinations_df = datasets.location_df[
-        datasets.location_df["location_id"].isin(sample_location_pairs[1])
-    ]
-
-    global_df = datasets.global_df
-
-    entity_rows = [
-        {"driver_id": d, "customer_id": c}
-        for (d, c) in zip(sample_drivers, sample_customers)
-    ]
-
-    # All returned features are numbers
-    feature_refs = [
-        "driver_stats:conv_rate",
-        "driver_stats:avg_daily_trips",
-        "customer_profile:current_balance",
-        "customer_profile:avg_passenger_count",
-        "customer_profile:lifetime_trip_count",
-        "order:order_is_success",
-        "global_stats:num_rides",
-        "global_stats:avg_ride_length",
-    ]
-    unprefixed_feature_refs = [f.rsplit(":", 1)[-1] for f in feature_refs if ":" in f]
-    # Remove the on demand feature view output features, since they're not present in the source dataframe
-
-    online_features_dict = get_online_features_dict(
-        environment=go_environment,
-        features=feature_refs,
-        entity_rows=entity_rows,
-        full_feature_names=full_feature_names,
-    )
-
-    keys = online_features_dict.keys()
-    assert (
-        len(keys) == len(feature_refs) + 2
-    )  # Add two for the driver id and the customer id entity keys
-    for feature in feature_refs:
-
-        if full_feature_names:
-            assert feature.replace(":", "__") in keys
-        else:
-            assert feature.rsplit(":", 1)[-1] in keys
-            assert (
-                "driver_stats" not in keys
-                and "customer_profile" not in keys
-                and "order" not in keys
-                and "global_stats" not in keys
-            )
-
-    tc = unittest.TestCase()
-    for i, entity_row in enumerate(entity_rows):
-        df_features = get_latest_feature_values_from_dataframes(
-            driver_df=drivers_df,
-            customer_df=customers_df,
-            orders_df=orders_df,
-            global_df=global_df,
-            entity_row=entity_row,
-        )
-
-        assert df_features["customer_id"] == online_features_dict["customer_id"][i]
-        assert df_features["driver_id"] == online_features_dict["driver_id"][i]
-
-        # All returned features are numbers
-        for unprefixed_feature_ref in unprefixed_feature_refs:
-            tc.assertAlmostEqual(
-                df_features[unprefixed_feature_ref],
-                online_features_dict[
-                    response_feature_name(unprefixed_feature_ref, full_feature_names)
-                ][i],
-                delta=0.0001,
-            )
-
-    # Check what happens for missing values
-    missing_responses_dict = get_online_features_dict(
-        environment=go_environment,
-        features=feature_refs,
-        entity_rows=[{"driver_id": 0, "customer_id": 0}],
-        full_feature_names=full_feature_names,
-    )
-    assert missing_responses_dict is not None
-    for unprefixed_feature_ref in unprefixed_feature_refs:
-        if unprefixed_feature_ref not in {"num_rides", "avg_ride_length", "driver_age"}:
-            tc.assertIsNone(
-                missing_responses_dict[
-                    response_feature_name(unprefixed_feature_ref, full_feature_names)
-                ][0]
-            )
-
-    entity_rows = [
-        {
-            "driver_id": _driver,
-            "customer_id": _customer,
-            "origin_id": origin,
-            "destination_id": destination,
-        }
-        for (_driver, _customer, origin, destination) in zip(
-            sample_drivers, sample_customers, *sample_location_pairs
-        )
-    ]
-    assert_feature_service_entity_mapping_correctness(
-        go_environment,
-        feature_service_entity_mapping,
-        entity_rows,
-        full_feature_names,
-        drivers_df,
-        customers_df,
-        orders_df,
-        origins_df,
-        destinations_df,
-    )
-
-
-@pytest.mark.skip
-@pytest.mark.integration
-@pytest.mark.goserver
-def test_online_store_cleanup_with_go_server(go_environment, go_data_sources):
-    """
-    This test mirrors test_online_store_cleanup for the Go feature server. It removes
-    on demand feature views since the Go feature server doesn't support them.
-    """
-    driver_entities, fs, simple_driver_fv, driver_stats_fv, df = setup_feature_store(
-        go_environment, go_data_sources
-    )
-    expected_values = df.sort_values(by="driver_id")
-    features = [f"{simple_driver_fv.name}:value"]
-    entity_rows = [{"driver_id": driver_id} for driver_id in sorted(driver_entities)]
-
-    online_features = fs.get_online_features(
-        features=features, entity_rows=entity_rows
-    ).to_dict()
-
-    assert np.allclose(expected_values["value"], online_features["value"])
-
-    fs.apply(
-        objects=[simple_driver_fv], objects_to_delete=[driver_stats_fv], partial=False
-    )
-
-    online_features = fs.get_online_features(
-        features=features, entity_rows=entity_rows
-    ).to_dict()
-    assert np.allclose(expected_values["value"], online_features["value"])
-
-    fs.apply(objects=[], objects_to_delete=[simple_driver_fv], partial=False)
-
-    def eventually_apply() -> Tuple[None, bool]:
-        try:
-            fs.apply([simple_driver_fv])
-        except BotoCoreError:
-            return None, False
-
-        return None, True
-
-    # Online store backend might have eventual consistency in schema update
-    # So recreating table that was just deleted might need some retries
-    wait_retry_backoff(eventually_apply, timeout_secs=60)
-
-    online_features = fs.get_online_features(features=features, entity_rows=entity_rows)
-    online_features = online_features.to_dict()
-    assert all(v is None for v in online_features["value"])
-
-
-@pytest.mark.skip
-@pytest.mark.integration
-@pytest.mark.goserverlifecycle
-def test_go_server_life_cycle(go_cycle_environment, go_data_sources):
-    import threading
-
-    import psutil
-
-    driver_entities, fs, simple_driver_fv, _, _ = setup_feature_store(
-        go_cycle_environment, go_data_sources
-    )
-    features = [f"{simple_driver_fv.name}:value"]
-    entity_rows = [{"driver_id": driver_id} for driver_id in sorted(driver_entities)]
-
-    # Start go server process that calls get_online_features and return and check if at any time go server
-    # fails to clean up resources
-    fs.get_online_features(features=features, entity_rows=entity_rows).to_dict()
-
-    assert (
-        fs._go_server
-        and fs._go_server._go_server_started.is_set()
-        and fs._go_server._shared_connection._process
-    )
-    go_fs_pid = fs._go_server._shared_connection._process.pid
-
-    os.kill(go_fs_pid, signal.SIGTERM)
-    # At the same time checking that resources are clean up properly once child process is killed
-    # Check that background thread has terminated
-    monitor_thread_alive = False
-    monitor_thread = fs._go_server._go_server_background_thread
-    assert monitor_thread.daemon
-
-    print(f"Monitor thread: {monitor_thread}, {monitor_thread.ident}")
-
-    for thread in threading.enumerate():
-        if thread.ident == monitor_thread.ident and thread.is_alive():
-            monitor_thread_alive = True
-    assert monitor_thread_alive
-
-    # Check if go server subprocess is still active even if background thread and process are killed
-    go_server_still_alive = False
-    for proc in psutil.process_iter():
-        try:
-            # Get process name & pid from process object.
-            process_name = proc.name()
-            ppid = proc.ppid()
-            if "goserver" in process_name and ppid == go_fs_pid:
-                # Kill process first and raise exception later
-                go_server_still_alive = True
-                proc.terminate()
-
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-    assert not go_server_still_alive
-
-    # Yield control to monitor thread to restart process.
-    time.sleep(1)
-
-    # Make sure the background thread has created a new subprocess.
-    assert (
-        fs._go_server
-        and fs._go_server._go_server_started.is_set()
-        and fs._go_server._shared_connection._process
-    )
-    new_go_fs_pid = fs._go_server._shared_connection._process.pid
-    assert new_go_fs_pid != go_fs_pid
-    fs._go_server._shared_connection._check_grpc_connection()
-
-    # Ensure process is still running.
-    assert fs._go_server._shared_connection._process.poll() is None
-
-    # And we can still get feature values.
-    fs.get_online_features(features=features, entity_rows=entity_rows).to_dict()
-
-    fs.kill_go_server()
-
-    # Ensure process is dead.
-    assert fs._go_server is None
-    # Ensure monitoring thread is also dead.
-    live_threads = [t.ident for t in threading.enumerate()]
-    assert monitor_thread.ident not in live_threads
-
-
-def setup_feature_store(environment, go_data_sources):
-    fs = environment.feature_store
-    fs.kill_go_server()
-    entities, datasets, data_sources = go_data_sources
-    driver_stats_fv = construct_universal_feature_views(
-        data_sources, with_odfv=False
-    ).driver
-    driver_entities = entities.driver_vals
-    df = pd.DataFrame(
-        {
-            "ts_1": [environment.end_date] * len(driver_entities),
-            "created_ts": [environment.end_date] * len(driver_entities),
-            "driver_id": driver_entities,
-            "value": np.random.random(size=len(driver_entities)),
-        }
-    )
-    ds = environment.data_source_creator.create_data_source(
-        df, destination_name="simple_driver_dataset"
-    )
-    simple_driver_fv = driver_feature_view(
-        data_source=ds, name="test_universal_online_simple_driver"
-    )
-    fs.apply([driver(), simple_driver_fv, driver_stats_fv])
-    fs.materialize(
-        environment.start_date - timedelta(days=1),
-        environment.end_date + timedelta(days=1),
-    )
-    return driver_entities, fs, simple_driver_fv, driver_stats_fv, df
-
-
-def response_feature_name(feature: str, full_feature_names: bool) -> str:
-    if (
-        feature in {"current_balance", "avg_passenger_count", "lifetime_trip_count"}
-        and full_feature_names
-    ):
-        return f"customer_profile__{feature}"
-
-    if feature in {"conv_rate", "avg_daily_trips"} and full_feature_names:
-        return f"driver_stats__{feature}"
-
-    if (
-        feature in {"conv_rate_plus_100", "conv_rate_plus_val_to_add"}
-        and full_feature_names
-    ):
-        return f"conv_rate_plus_100__{feature}"
-
-    if feature in {"order_is_success"} and full_feature_names:
-        return f"order__{feature}"
-
-    if feature in {"num_rides", "avg_ride_length"} and full_feature_names:
-        return f"global_stats__{feature}"
+    for feature_ref in feature_refs:
+        if feature_ref.endswith(feature):
+            return feature_ref.replace(":", "__")
 
     return feature
 
@@ -1114,17 +746,10 @@ def get_latest_feature_values_from_dataframes(
             global_df["event_timestamp"].idxmax()
         ].to_dict()
     if origin_df is not None:
-        latest_origin_row = get_latest_row(
-            entity_row, origin_df, "location_id", "origin_id"
+        latest_location_row = get_latest_feature_values_for_location_df(
+            entity_row, origin_df, destination_df
         )
-        latest_destination_row = get_latest_row(
-            entity_row, destination_df, "location_id", "destination_id"
-        )
-        # Need full feature names for shadow entities
-        latest_origin_row["origin__temperature"] = latest_origin_row.pop("temperature")
-        latest_destination_row["destination__temperature"] = latest_destination_row.pop(
-            "temperature"
-        )
+
     request_data_features = entity_row.copy()
     request_data_features.pop("driver_id")
     request_data_features.pop("customer_id")
@@ -1143,8 +768,7 @@ def get_latest_feature_values_from_dataframes(
             **latest_customer_row,
             **latest_driver_row,
             **latest_orders_row,
-            **latest_origin_row,
-            **latest_destination_row,
+            **latest_location_row,
             **request_data_features,
         }
     return {
@@ -1152,6 +776,25 @@ def get_latest_feature_values_from_dataframes(
         **latest_driver_row,
         **latest_orders_row,
         **request_data_features,
+    }
+
+
+def get_latest_feature_values_for_location_df(entity_row, origin_df, destination_df):
+    latest_origin_row = get_latest_row(
+        entity_row, origin_df, "location_id", "origin_id"
+    )
+    latest_destination_row = get_latest_row(
+        entity_row, destination_df, "location_id", "destination_id"
+    )
+    # Need full feature names for shadow entities
+    latest_origin_row["origin__temperature"] = latest_origin_row.pop("temperature")
+    latest_destination_row["destination__temperature"] = latest_destination_row.pop(
+        "temperature"
+    )
+
+    return {
+        **latest_origin_row,
+        **latest_destination_row,
     }
 
 
@@ -1172,17 +815,17 @@ def assert_feature_service_correctness(
         full_feature_names=full_feature_names,
     )
     feature_service_keys = feature_service_online_features_dict.keys()
-
-    assert (
-        len(feature_service_keys)
-        == sum(
-            [
-                len(projection.features)
-                for projection in feature_service.feature_view_projections
-            ]
-        )
-        + 2
-    )  # Add two for the driver id and the customer id entity keys
+    expected_feature_refs = [
+        f"{projection.name_to_use()}__{feature.name}"
+        if full_feature_names
+        else feature.name
+        for projection in feature_service.feature_view_projections
+        for feature in projection.features
+    ]
+    assert set(feature_service_keys) == set(expected_feature_refs) | {
+        "customer_id",
+        "driver_id",
+    }
 
     tc = unittest.TestCase()
     for i, entity_row in enumerate(entity_rows):
@@ -1195,7 +838,9 @@ def assert_feature_service_correctness(
         )
         tc.assertAlmostEqual(
             feature_service_online_features_dict[
-                response_feature_name("conv_rate_plus_100", full_feature_names)
+                response_feature_name(
+                    "conv_rate_plus_100", expected_feature_refs, full_feature_names
+                )
             ][i],
             df_features["conv_rate"] + 100,
             delta=0.0001,
@@ -1207,9 +852,6 @@ def assert_feature_service_entity_mapping_correctness(
     feature_service,
     entity_rows,
     full_feature_names,
-    drivers_df,
-    customers_df,
-    orders_df,
     origins_df,
     destinations_df,
 ):
@@ -1222,22 +864,20 @@ def assert_feature_service_entity_mapping_correctness(
         )
         feature_service_keys = feature_service_online_features_dict.keys()
 
-        assert (
-            len(feature_service_keys)
-            == sum(
-                [
-                    len(projection.features)
-                    for projection in feature_service.feature_view_projections
-                ]
-            )
-            + 4
-        )  # Add 4 for the driver_id, customer_id, origin_id, and destination_id entity keys
+        expected_features = [
+            f"{projection.name_to_use()}__{feature.name}"
+            if full_feature_names
+            else feature.name
+            for projection in feature_service.feature_view_projections
+            for feature in projection.features
+        ]
+        assert set(feature_service_keys) == set(expected_features) | {
+            "destination_id",
+            "origin_id",
+        }
 
         for i, entity_row in enumerate(entity_rows):
-            df_features = get_latest_feature_values_from_dataframes(
-                driver_df=drivers_df,
-                customer_df=customers_df,
-                orders_df=orders_df,
+            df_features = get_latest_feature_values_for_location_df(
                 origin_df=origins_df,
                 destination_df=destinations_df,
                 entity_row=entity_row,

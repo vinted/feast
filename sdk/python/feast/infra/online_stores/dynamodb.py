@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from pydantic import StrictStr
-from pydantic.typing import Literal
+from pydantic.typing import Literal, Union
 
 from feast import Entity, FeatureView, utils
 from feast.infra.infra_object import DYNAMODB_INFRA_OBJECT_CLASS_TYPE, InfraObject
@@ -50,17 +50,17 @@ class DynamoDBOnlineStoreConfig(FeastConfigBaseModel):
     type: Literal["dynamodb"] = "dynamodb"
     """Online store type selector"""
 
+    batch_size: int = 40
+    """Number of items to retrieve in a DynamoDB BatchGetItem call."""
+
+    endpoint_url: Union[str, None] = None
+    """DynamoDB local development endpoint Url, i.e. http://localhost:8000"""
+
     region: StrictStr
     """AWS Region Name"""
 
     table_name_template: StrictStr = "{project}.{table_name}"
     """DynamoDB table name template"""
-
-    sort_response: bool = True
-    """Whether or not to sort BatchGetItem response."""
-
-    batch_size: int = 40
-    """Number of items to retrieve in a DynamoDB BatchGetItem call."""
 
 
 class DynamoDBOnlineStore(OnlineStore):
@@ -95,8 +95,12 @@ class DynamoDBOnlineStore(OnlineStore):
         """
         online_config = config.online_store
         assert isinstance(online_config, DynamoDBOnlineStoreConfig)
-        dynamodb_client = self._get_dynamodb_client(online_config.region)
-        dynamodb_resource = self._get_dynamodb_resource(online_config.region)
+        dynamodb_client = self._get_dynamodb_client(
+            online_config.region, online_config.endpoint_url
+        )
+        dynamodb_resource = self._get_dynamodb_resource(
+            online_config.region, online_config.endpoint_url
+        )
 
         for table_instance in tables_to_keep:
             try:
@@ -141,7 +145,9 @@ class DynamoDBOnlineStore(OnlineStore):
         """
         online_config = config.online_store
         assert isinstance(online_config, DynamoDBOnlineStoreConfig)
-        dynamodb_resource = self._get_dynamodb_resource(online_config.region)
+        dynamodb_resource = self._get_dynamodb_resource(
+            online_config.region, online_config.endpoint_url
+        )
 
         for table in tables:
             _delete_table_idempotent(
@@ -175,26 +181,14 @@ class DynamoDBOnlineStore(OnlineStore):
         """
         online_config = config.online_store
         assert isinstance(online_config, DynamoDBOnlineStoreConfig)
-        dynamodb_resource = self._get_dynamodb_resource(online_config.region)
+        dynamodb_resource = self._get_dynamodb_resource(
+            online_config.region, online_config.endpoint_url
+        )
 
         table_instance = dynamodb_resource.Table(
             _get_table_name(online_config, config, table)
         )
-        with table_instance.batch_writer() as batch:
-            for entity_key, features, timestamp, created_ts in data:
-                entity_id = compute_entity_id(entity_key)
-                batch.put_item(
-                    Item={
-                        "entity_id": entity_id,  # PartitionKey
-                        "event_ts": str(utils.make_tzaware(timestamp)),
-                        "values": {
-                            k: v.SerializeToString()
-                            for k, v in features.items()  # Serialized Features
-                        },
-                    }
-                )
-                if progress:
-                    progress(1)
+        self._write_batch_non_duplicates(table_instance, data, progress)
 
     @log_exceptions_and_usage(online_store="dynamodb")
     def online_read(
@@ -207,9 +201,6 @@ class DynamoDBOnlineStore(OnlineStore):
         """
         Retrieve feature values from the online DynamoDB store.
 
-        Note: This method is currently not optimized to retrieve a lot of data at a time
-        as it does sequential gets from the DynamoDB table.
-
         Args:
             config: The RepoConfig for the current FeatureStore.
             table: Feast FeatureView.
@@ -217,7 +208,9 @@ class DynamoDBOnlineStore(OnlineStore):
         """
         online_config = config.online_store
         assert isinstance(online_config, DynamoDBOnlineStoreConfig)
-        dynamodb_resource = self._get_dynamodb_resource(online_config.region)
+        dynamodb_resource = self._get_dynamodb_resource(
+            online_config.region, online_config.endpoint_url
+        )
         table_instance = dynamodb_resource.Table(
             _get_table_name(online_config, config, table)
         )
@@ -225,7 +218,6 @@ class DynamoDBOnlineStore(OnlineStore):
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
         entity_ids = [compute_entity_id(entity_key) for entity_key in entity_keys]
         batch_size = online_config.batch_size
-        sort_response = online_config.sort_response
         entity_ids_iter = iter(entity_ids)
         while True:
             batch = list(itertools.islice(entity_ids_iter, batch_size))
@@ -244,30 +236,39 @@ class DynamoDBOnlineStore(OnlineStore):
             response = response.get("Responses")
             table_responses = response.get(table_instance.name)
             if table_responses:
-                if sort_response:
-                    table_responses = self._sort_dynamodb_response(
-                        table_responses, entity_ids
-                    )
+                table_responses = self._sort_dynamodb_response(
+                    table_responses, entity_ids
+                )
+                entity_idx = 0
                 for tbl_res in table_responses:
+                    entity_id = tbl_res["entity_id"]
+                    while entity_id != batch[entity_idx]:
+                        result.append((None, None))
+                        entity_idx += 1
                     res = {}
                     for feature_name, value_bin in tbl_res["values"].items():
                         val = ValueProto()
                         val.ParseFromString(value_bin.value)
                         res[feature_name] = val
                     result.append((datetime.fromisoformat(tbl_res["event_ts"]), res))
-            else:
-                batch_size_nones = ((None, None),) * len(batch)
-                result.extend(batch_size_nones)
+                    entity_idx += 1
+
+            # Not all entities in a batch may have responses
+            # Pad with remaining values in batch that were not found
+            batch_size_nones = ((None, None),) * (len(batch) - len(result))
+            result.extend(batch_size_nones)
         return result
 
-    def _get_dynamodb_client(self, region: str):
+    def _get_dynamodb_client(self, region: str, endpoint_url: Optional[str] = None):
         if self._dynamodb_client is None:
-            self._dynamodb_client = _initialize_dynamodb_client(region)
+            self._dynamodb_client = _initialize_dynamodb_client(region, endpoint_url)
         return self._dynamodb_client
 
-    def _get_dynamodb_resource(self, region: str):
+    def _get_dynamodb_resource(self, region: str, endpoint_url: Optional[str] = None):
         if self._dynamodb_resource is None:
-            self._dynamodb_resource = _initialize_dynamodb_resource(region)
+            self._dynamodb_resource = _initialize_dynamodb_resource(
+                region, endpoint_url
+            )
         return self._dynamodb_resource
 
     def _sort_dynamodb_response(self, responses: list, order: list):
@@ -284,13 +285,39 @@ class DynamoDBOnlineStore(OnlineStore):
         _, table_responses_ordered = zip(*table_responses_ordered)
         return table_responses_ordered
 
+    @log_exceptions_and_usage(online_store="dynamodb")
+    def _write_batch_non_duplicates(
+        self,
+        table_instance,
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]],
+    ):
+        """Deduplicate write batch request items on ``entity_id`` primary key."""
+        with table_instance.batch_writer(overwrite_by_pkeys=["entity_id"]) as batch:
+            for entity_key, features, timestamp, created_ts in data:
+                entity_id = compute_entity_id(entity_key)
+                batch.put_item(
+                    Item={
+                        "entity_id": entity_id,  # PartitionKey
+                        "event_ts": str(utils.make_tzaware(timestamp)),
+                        "values": {
+                            k: v.SerializeToString()
+                            for k, v in features.items()  # Serialized Features
+                        },
+                    }
+                )
+                if progress:
+                    progress(1)
 
-def _initialize_dynamodb_client(region: str):
-    return boto3.client("dynamodb", region_name=region)
+
+def _initialize_dynamodb_client(region: str, endpoint_url: Optional[str] = None):
+    return boto3.client("dynamodb", region_name=region, endpoint_url=endpoint_url)
 
 
-def _initialize_dynamodb_resource(region: str):
-    return boto3.resource("dynamodb", region_name=region)
+def _initialize_dynamodb_resource(region: str, endpoint_url: Optional[str] = None):
+    return boto3.resource("dynamodb", region_name=region, endpoint_url=endpoint_url)
 
 
 # TODO(achals): This form of user-facing templating is experimental.
@@ -327,13 +354,20 @@ class DynamoDBTable(InfraObject):
     Attributes:
         name: The name of the table.
         region: The region of the table.
+        endpoint_url: Local DynamoDB Endpoint Url.
+        _dynamodb_client: Boto3 DynamoDB client.
+        _dynamodb_resource: Boto3 DynamoDB resource.
     """
 
     region: str
+    endpoint_url = None
+    _dynamodb_client = None
+    _dynamodb_resource = None
 
-    def __init__(self, name: str, region: str):
+    def __init__(self, name: str, region: str, endpoint_url: Optional[str] = None):
         super().__init__(name)
         self.region = region
+        self.endpoint_url = endpoint_url
 
     def to_infra_object_proto(self) -> InfraObjectProto:
         dynamodb_table_proto = self.to_proto()
@@ -362,8 +396,8 @@ class DynamoDBTable(InfraObject):
         )
 
     def update(self):
-        dynamodb_client = _initialize_dynamodb_client(region=self.region)
-        dynamodb_resource = _initialize_dynamodb_resource(region=self.region)
+        dynamodb_client = self._get_dynamodb_client(self.region, self.endpoint_url)
+        dynamodb_resource = self._get_dynamodb_resource(self.region, self.endpoint_url)
 
         try:
             dynamodb_resource.create_table(
@@ -384,5 +418,17 @@ class DynamoDBTable(InfraObject):
         dynamodb_client.get_waiter("table_exists").wait(TableName=f"{self.name}")
 
     def teardown(self):
-        dynamodb_resource = _initialize_dynamodb_resource(region=self.region)
+        dynamodb_resource = self._get_dynamodb_resource(self.region, self.endpoint_url)
         _delete_table_idempotent(dynamodb_resource, self.name)
+
+    def _get_dynamodb_client(self, region: str, endpoint_url: Optional[str] = None):
+        if self._dynamodb_client is None:
+            self._dynamodb_client = _initialize_dynamodb_client(region, endpoint_url)
+        return self._dynamodb_client
+
+    def _get_dynamodb_resource(self, region: str, endpoint_url: Optional[str] = None):
+        if self._dynamodb_resource is None:
+            self._dynamodb_resource = _initialize_dynamodb_resource(
+                region, endpoint_url
+            )
+        return self._dynamodb_resource

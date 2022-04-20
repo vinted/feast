@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ 3.7, 3.8, 3.9 ]
+        python-version: [ "3.7", "3.8", "3.9", "3.10" ]
         os: [ ubuntu-latest, macOS-latest]
     env:
       OS: ${{ matrix.os }}
@@ -45,9 +45,7 @@ jobs:
       - name: Install pip-tools
         run: pip install pip-tools
       - name: Install dependencies
-        run: |
-          make compile-protos-go
-          make install-python-ci-dependencies
+        run: make install-python-ci-dependencies
       - name: Test Python
         env:
           SNOWFLAKE_CI_DEPLOYMENT: ${{ secrets.SNOWFLAKE_CI_DEPLOYMENT }}
@@ -74,7 +72,7 @@ jobs:
         id: setup-python
         uses: actions/setup-python@v2
         with:
-          python-version: 3.7
+          python-version: "3.7"
       - name: Upgrade pip version
         run: |
           pip install --upgrade "pip>=21.3.1"

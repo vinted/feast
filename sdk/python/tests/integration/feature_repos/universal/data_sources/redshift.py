@@ -18,9 +18,8 @@ class RedshiftDataSourceCreator(DataSourceCreator):
 
     tables: List[str] = []
 
-    def __init__(self, project_name: str):
-        super().__init__()
-        self.project_name = project_name
+    def __init__(self, project_name: str, *args, **kwargs):
+        super().__init__(project_name)
         self.client = aws_utils.get_redshift_data_client("us-west-2")
         self.s3 = aws_utils.get_s3_resource("us-west-2")
 
@@ -38,7 +37,7 @@ class RedshiftDataSourceCreator(DataSourceCreator):
         df: pd.DataFrame,
         destination_name: str,
         suffix: Optional[str] = None,
-        event_timestamp_column="ts",
+        timestamp_field="ts",
         created_timestamp_column="created_ts",
         field_mapping: Dict[str, str] = None,
     ) -> DataSource:
@@ -61,10 +60,10 @@ class RedshiftDataSourceCreator(DataSourceCreator):
 
         return RedshiftSource(
             table=destination_name,
-            event_timestamp_column=event_timestamp_column,
+            timestamp_field=timestamp_field,
             created_timestamp_column=created_timestamp_column,
-            date_partition_column="",
             field_mapping=field_mapping or {"ts_1": "ts"},
+            database=self.offline_store_config.database,
         )
 
     def create_saved_dataset_destination(self) -> SavedDatasetRedshiftStorage:

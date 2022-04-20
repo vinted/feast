@@ -13,6 +13,7 @@
 # limitations under the License.
 import logging
 import multiprocessing
+import pathlib
 import time
 from datetime import datetime, timedelta
 from multiprocessing import Process
@@ -22,6 +23,8 @@ from typing import List
 import pandas as pd
 import pytest
 from _pytest.nodes import Item
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.waiting_utils import wait_for_logs
 
 from feast import FeatureStore
 from tests.data.data_creator import create_dataset
@@ -30,8 +33,6 @@ from tests.integration.feature_repos.integration_test_repo_config import (
 )
 from tests.integration.feature_repos.repo_configuration import (
     FULL_REPO_CONFIGS,
-    GO_CYCLE_REPO_CONFIGS,
-    GO_REPO_CONFIGS,
     REDIS_CLUSTER_CONFIG,
     REDIS_CONFIG,
     Environment,
@@ -58,9 +59,6 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "goserver: mark tests that use the go feature server"
     )
-    config.addinivalue_line(
-        "markers", "goserverlifecycle: mark tests that use the go feature server"
-    )
 
 
 def pytest_addoption(parser):
@@ -82,12 +80,6 @@ def pytest_addoption(parser):
         default=False,
         help="Run tests that use the go feature server",
     )
-    parser.addoption(
-        "--goserverlifecycle",
-        action="store_true",
-        default=False,
-        help="Run tests on go feature server lifecycle",
-    )
 
 
 def pytest_collection_modifyitems(config, items: List[Item]):
@@ -95,7 +87,6 @@ def pytest_collection_modifyitems(config, items: List[Item]):
     should_run_benchmark = config.getoption("--benchmark") is True
     should_run_universal = config.getoption("--universal") is True
     should_run_goserver = config.getoption("--goserver") is True
-    should_run_goserverlifecycle = config.getoption("--goserverlifecycle") is True
 
     integration_tests = [t for t in items if "integration" in t.keywords]
     if not should_run_integration:
@@ -125,12 +116,6 @@ def pytest_collection_modifyitems(config, items: List[Item]):
     if should_run_goserver:
         items.clear()
         for t in goserver_tests:
-            items.append(t)
-
-    goserverlifecycle_tests = [t for t in items if "goserverlifecycle" in t.keywords]
-    if should_run_goserverlifecycle:
-        items.clear()
-        for t in goserverlifecycle_tests:
             items.append(t)
 
 
@@ -179,11 +164,58 @@ def start_test_local_server(repo_path: str, port: int):
     fs.serve("localhost", port, no_access_log=True)
 
 
+class TrinoContainerSingleton:
+    current_file = pathlib.Path(__file__).resolve()
+    catalog_dir = current_file.parent.joinpath(
+        "integration/feature_repos/universal/data_sources/catalog"
+    )
+    container = None
+    is_running = False
+
+    @classmethod
+    def get_singleton(cls):
+        if not cls.is_running:
+            cls.container = (
+                DockerContainer("trinodb/trino:376")
+                .with_volume_mapping(cls.catalog_dir, "/etc/catalog/")
+                .with_exposed_ports("8080")
+            )
+
+            cls.container.start()
+            log_string_to_wait_for = "SERVER STARTED"
+            wait_for_logs(
+                container=cls.container, predicate=log_string_to_wait_for, timeout=30
+            )
+            cls.is_running = True
+        return cls.container
+
+    @classmethod
+    def teardown(cls):
+        if cls.container:
+            cls.container.stop()
+
+
+@pytest.fixture(scope="session")
+def trino_fixture(request):
+    def teardown():
+        TrinoContainerSingleton.teardown()
+
+    request.addfinalizer(teardown)
+    return TrinoContainerSingleton
+
+
 @pytest.fixture(
     params=FULL_REPO_CONFIGS, scope="session", ids=[str(c) for c in FULL_REPO_CONFIGS]
 )
-def environment(request, worker_id: str):
-    e = construct_test_environment(request.param, worker_id=worker_id)
+def environment(request, worker_id: str, trino_fixture):
+    if "TrinoSourceCreator" in request.param.offline_store_creator.__name__:
+        e = construct_test_environment(
+            request.param,
+            worker_id=worker_id,
+            offline_container=trino_fixture.get_singleton(),
+        )
+    else:
+        e = construct_test_environment(request.param, worker_id=worker_id)
     proc = Process(
         target=start_test_local_server,
         args=(e.feature_store.repo_path, e.get_local_server_port()),
@@ -198,39 +230,11 @@ def environment(request, worker_id: str):
         e.feature_store.teardown()
         if proc.is_alive():
             proc.kill()
+        if e.online_store_creator:
+            e.online_store_creator.teardown()
 
     request.addfinalizer(cleanup)
 
-    return e
-
-
-@pytest.fixture(
-    params=GO_REPO_CONFIGS, scope="session", ids=[str(c) for c in GO_REPO_CONFIGS]
-)
-def go_environment(request, worker_id: str):
-    e = construct_test_environment(request.param, worker_id=worker_id)
-
-    def cleanup():
-        e.feature_store.teardown()
-        if e.feature_store._go_server:
-            e.feature_store._go_server.kill_go_server_explicitly()
-
-    request.addfinalizer(cleanup)
-    return e
-
-
-@pytest.fixture(
-    params=GO_CYCLE_REPO_CONFIGS,
-    scope="session",
-    ids=[str(c) for c in GO_CYCLE_REPO_CONFIGS],
-)
-def go_cycle_environment(request, worker_id: str):
-    e = construct_test_environment(request.param, worker_id=worker_id)
-
-    def cleanup():
-        e.feature_store.teardown()
-
-    request.addfinalizer(cleanup)
     return e
 
 
@@ -272,16 +276,6 @@ def redis_universal_data_sources(request, local_redis_environment):
 
 
 @pytest.fixture(scope="session")
-def go_data_sources(request, go_environment):
-    def cleanup():
-        # logger.info("Running cleanup in %s, Request: %s", worker_id, request.param)
-        go_environment.data_source_creator.teardown()
-
-    request.addfinalizer(cleanup)
-    return construct_universal_test_data(go_environment)
-
-
-@pytest.fixture(scope="session")
 def e2e_data_sources(environment: Environment, request):
     df = create_dataset()
     data_source = environment.data_source_creator.create_data_source(
@@ -290,6 +284,8 @@ def e2e_data_sources(environment: Environment, request):
 
     def cleanup():
         environment.data_source_creator.teardown()
+        if environment.online_store_creator:
+            environment.online_store_creator.teardown()
 
     request.addfinalizer(cleanup)
 

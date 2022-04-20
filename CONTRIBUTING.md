@@ -4,7 +4,7 @@
 ## Overview
 This guide is targeted at developers looking to contribute to Feast components in
 the main Feast repository:
-- [Feast Python SDK / CLI](#feast-python-sdk-%2F-cli)
+- [Feast Python SDK / CLI](#feast-python-sdk--cli)
 - [Feast Java Serving](#feast-java-serving)
 - [Feast Go Client](#feast-go-client)
 
@@ -19,6 +19,9 @@ A quick few highlights:
   - Includes biweekly community calls at 10AM PST
 
 ## Making a pull request
+We use the convention that the assignee of a PR is the person with the next action.
+
+This means that often, the assignee may be empty (if no reviewer has been found yet), the reviewer, or the PR writer if there are comments to be addressed.
 
 ### Pull request checklist
 A quick list of things to keep in mind as you're making changes:
@@ -161,6 +164,23 @@ To test across clouds, on top of setting up Redis, you also need GCP / AWS / Sno
 
 Then run `make test-python-integration`. Note that for Snowflake / GCP / AWS, this will create new temporary tables / datasets.
 
+#### (Experimental) Run full integration tests against containerized services
+Test across clouds requires existing accounts on GCP / AWS / Snowflake, and may incur costs when using these services.
+
+For this approach of running tests, you'll need to have docker set up locally: [Get Docker](https://docs.docker.com/get-docker/)
+
+It's possible to run some integration tests against emulated local versions of these services, using ephemeral containers. 
+These tests create new temporary tables / datasets locally only, and they are cleaned up. when the containers are torn down.
+
+The services with containerized replacements currently implemented are:
+- Datastore
+- DynamoDB
+- Redis
+- Trino
+
+You can run `make test-python-integration-container` to run tests against the containerized versions of dependencies.
+
+
 ## Feast Java Serving
 See [Java contributing guide](java/CONTRIBUTING.md)
 
@@ -212,4 +232,3 @@ go test
     * This is because github actions cannot pull the branch version for some reason so just find your PR number in your pull request header and hard code it into the `uses: actions/checkout@v2` section (i.e replace `refs/pull/${{ github.event.pull_request.number }}/merge` with `refs/pull/<pr number>/merge`)
 * AWS/GCP workflow
     * Currently still cannot test GCP/AWS workflow without setting up secrets in a forked repository.
-

@@ -43,6 +43,7 @@ OFFLINE_STORE_CLASS_FOR_TYPE = {
     "redshift": "feast.infra.offline_stores.redshift.RedshiftOfflineStore",
     "snowflake.offline": "feast.infra.offline_stores.snowflake.SnowflakeOfflineStore",
     "spark": "feast.infra.offline_stores.contrib.spark_offline_store.spark.SparkOfflineStore",
+    "trino": "feast.infra.offline_stores.contrib.trino_offline_store.trino.TrinoOfflineStore",
 }
 
 FEATURE_SERVER_CONFIG_CLASS_FOR_TYPE = {
@@ -57,7 +58,7 @@ FEATURE_SERVER_TYPE_FOR_PROVIDER = {
 
 
 class FeastBaseModel(BaseModel):
-    """ Feast Pydantic Configuration Class """
+    """Feast Pydantic Configuration Class"""
 
     class Config:
         arbitrary_types_allowed = True
@@ -65,7 +66,7 @@ class FeastBaseModel(BaseModel):
 
 
 class FeastConfigBaseModel(BaseModel):
-    """ Feast Pydantic Configuration Class """
+    """Feast Pydantic Configuration Class"""
 
     class Config:
         arbitrary_types_allowed = True
@@ -73,7 +74,7 @@ class FeastConfigBaseModel(BaseModel):
 
 
 class RegistryConfig(FeastBaseModel):
-    """ Metadata Store Configuration. Configuration that relates to reading from and writing to the Feast registry."""
+    """Metadata Store Configuration. Configuration that relates to reading from and writing to the Feast registry."""
 
     registry_store_type: Optional[StrictStr]
     """ str: Provider name or a class name that implements RegistryStore. """
@@ -89,7 +90,7 @@ class RegistryConfig(FeastBaseModel):
 
 
 class RepoConfig(FeastBaseModel):
-    """ Repo config. Typically loaded from `feature_store.yaml` """
+    """Repo config. Typically loaded from `feature_store.yaml`"""
 
     registry: Union[StrictStr, RegistryConfig] = "data/registry.db"
     """ str: Path to metadata store. Can be a local path, or remote object storage path, e.g. a GCS URI """
@@ -117,7 +118,7 @@ class RepoConfig(FeastBaseModel):
 
     repo_path: Optional[Path] = None
 
-    go_feature_server: Optional[bool] = False
+    go_feature_retrieval: Optional[bool] = False
 
     def __init__(self, **data: Any):
         super().__init__(**data)

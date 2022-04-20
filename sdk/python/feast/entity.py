@@ -11,8 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import warnings
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from google.protobuf.json_format import MessageToJson
 
@@ -39,6 +40,9 @@ class Entity:
         owner: The owner of the entity, typically the email of the primary maintainer.
         created_timestamp: The time when the entity was created.
         last_updated_timestamp: The time when the entity was last updated.
+        join_keys: A list of properties that uniquely identifies different entities within the
+            collection. This is meant to replace the `join_key` parameter, but currently only
+            supports a list of size one.
     """
 
     name: str
@@ -49,21 +53,78 @@ class Entity:
     owner: str
     created_timestamp: Optional[datetime]
     last_updated_timestamp: Optional[datetime]
+    join_keys: List[str]
 
     @log_exceptions
     def __init__(
         self,
-        name: str,
+        *args,
+        name: Optional[str] = None,
         value_type: ValueType = ValueType.UNKNOWN,
         description: str = "",
         join_key: Optional[str] = None,
         tags: Optional[Dict[str, str]] = None,
         owner: str = "",
+        join_keys: Optional[List[str]] = None,
     ):
-        """Creates an Entity object."""
-        self.name = name
+        """
+        Creates an Entity object.
+
+        Args:
+            name: The unique name of the entity.
+            value_type: The type of the entity, such as string or float.
+            description: A human-readable description.
+            join_key (deprecated): A property that uniquely identifies different entities within the
+                collection. The join_key property is typically used for joining entities
+                with their associated features. If not specified, defaults to the name.
+            tags: A dictionary of key-value pairs to store arbitrary metadata.
+            owner: The owner of the entity, typically the email of the primary maintainer.
+            join_keys: A list of properties that uniquely identifies different entities within the
+                collection. This is meant to replace the `join_key` parameter, but currently only
+                supports a list of size one.
+
+        Raises:
+            ValueError: Parameters are specified incorrectly.
+        """
+        if len(args) == 1:
+            warnings.warn(
+                (
+                    "Entity name should be specified as a keyword argument instead of a positional arg."
+                    "Feast 0.23+ will not support positional arguments to construct Entities"
+                ),
+                DeprecationWarning,
+            )
+        if len(args) > 1:
+            raise ValueError(
+                "All arguments to construct an entity should be specified as keyword arguments only"
+            )
+
+        self.name = args[0] if len(args) > 0 else name
+
+        if not self.name:
+            raise ValueError("Name needs to be specified")
+
         self.value_type = value_type
-        self.join_key = join_key if join_key else name
+
+        if join_key:
+            warnings.warn(
+                (
+                    "The `join_key` parameter is being deprecated in favor of the `join_keys` parameter. "
+                    "Please switch from using `join_key` to `join_keys`. Feast 0.22 and onwards will not "
+                    "support the `join_key` parameter."
+                ),
+                DeprecationWarning,
+            )
+        self.join_keys = join_keys or []
+        if join_keys and len(join_keys) > 1:
+            raise ValueError(
+                "An entity may only have single join key. "
+                "Multiple join keys will be supported in the future."
+            )
+        if join_keys and len(join_keys) == 1:
+            self.join_key = join_keys[0]
+        else:
+            self.join_key = join_key if join_key else self.name
         self.description = description
         self.tags = tags if tags is not None else {}
         self.owner = owner
@@ -71,7 +132,7 @@ class Entity:
         self.last_updated_timestamp = None
 
     def __hash__(self) -> int:
-        return hash((id(self), self.name))
+        return hash((self.name, self.join_key))
 
     def __eq__(self, other):
         if not isinstance(other, Entity):

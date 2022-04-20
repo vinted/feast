@@ -158,7 +158,7 @@ public class DataGenerator {
         .setMaxAge(Duration.newBuilder().setSeconds(3600).build())
         .setBatchSource(
             DataSource.newBuilder()
-                .setEventTimestampColumn("ts")
+                .setTimestampField("ts")
                 .setType(DataSource.SourceType.BATCH_FILE)
                 .setFileOptions(
                     FileOptions.newBuilder()
@@ -166,7 +166,7 @@ public class DataGenerator {
                             FileFormat.newBuilder()
                                 .setParquetFormat(ParquetFormat.newBuilder().build())
                                 .build())
-                        .setFileUrl("/dev/null")
+                        .setUri("/dev/null")
                         .build())
                 .build())
         .putAllLabels(labels)
@@ -203,22 +203,18 @@ public class DataGenerator {
     return DataSource.newBuilder()
         .setType(DataSource.SourceType.BATCH_FILE)
         .setFileOptions(
-            FileOptions.newBuilder()
-                .setFileFormat(createParquetFormat())
-                .setFileUrl(fileURL)
-                .build())
-        .setEventTimestampColumn(timestampColumn)
+            FileOptions.newBuilder().setFileFormat(createParquetFormat()).setUri(fileURL).build())
+        .setTimestampField(timestampColumn)
         .setDatePartitionColumn(datePartitionColumn)
         .build();
   }
 
   public static DataSource createBigQueryDataSourceSpec(
-      String bigQueryTableRef, String timestampColumn, String datePartitionColumn) {
+      String bigQueryTable, String timestampColumn, String datePartitionColumn) {
     return DataSource.newBuilder()
         .setType(DataSource.SourceType.BATCH_BIGQUERY)
-        .setBigqueryOptions(
-            DataSource.BigQueryOptions.newBuilder().setTableRef(bigQueryTableRef).build())
-        .setEventTimestampColumn(timestampColumn)
+        .setBigqueryOptions(DataSource.BigQueryOptions.newBuilder().setTable(bigQueryTable).build())
+        .setTimestampField(timestampColumn)
         .setDatePartitionColumn(datePartitionColumn)
         .build();
   }
@@ -233,7 +229,7 @@ public class DataGenerator {
                 .setBootstrapServers(servers)
                 .setMessageFormat(createProtoFormat("class.path"))
                 .build())
-        .setEventTimestampColumn(timestampColumn)
+        .setTimestampField(timestampColumn)
         .build();
   }
 
@@ -295,7 +291,7 @@ public class DataGenerator {
                 .setStreamName("stream")
                 .setRecordFormat(createProtoFormat(classPath))
                 .build())
-        .setEventTimestampColumn(timestampColumn)
+        .setTimestampField(timestampColumn)
         .build();
   }
 

@@ -529,7 +529,8 @@ def snowflake_python_type_to_feast_value_type(
         "uint8": ValueType.INT32,
         "int8": ValueType.INT32,
         "datetime64[ns]": ValueType.UNIX_TIMESTAMP,
-        "object": ValueType.UNKNOWN,
+        "object": ValueType.STRING,
+        "bool": ValueType.BOOL,
     }
 
     return type_map[snowflake_python_type_as_str.lower()]
@@ -580,10 +581,10 @@ def pa_to_redshift_value_type(pa_type: pyarrow.DataType) -> str:
 
 def _non_empty_value(value: Any) -> bool:
     """
-        Check that there's enough data we can use for type inference.
-        If primitive type - just checking that it's not None
-        If iterable - checking that there's some elements (len > 0)
-        String is special case: "" - empty string is considered non empty
+    Check that there's enough data we can use for type inference.
+    If primitive type - just checking that it's not None
+    If iterable - checking that there's some elements (len > 0)
+    String is special case: "" - empty string is considered non empty
     """
     return value is not None and (
         not isinstance(value, Sized) or len(value) > 0 or isinstance(value, str)

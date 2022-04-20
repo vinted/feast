@@ -183,7 +183,7 @@ class Provider(abc.ABC):
         Returns:
              RetrievalJob object, which is lazy wrapper for actual query performed under the hood.
 
-         """
+        """
         ...
 
     def get_feature_server_endpoint(self) -> Optional[str]:
@@ -258,7 +258,7 @@ def _get_column_names(
         the query to the offline store.
     """
     # if we have mapped fields, use the original field names in the call to the offline store
-    event_timestamp_column = feature_view.batch_source.event_timestamp_column
+    event_timestamp_column = feature_view.batch_source.timestamp_field
     feature_names = [feature.name for feature in feature_view.features]
     created_timestamp_column = feature_view.batch_source.created_timestamp_column
     join_keys = [
@@ -290,9 +290,13 @@ def _get_column_names(
 
     # We need to exclude join keys and timestamp columns from the list of features, after they are mapped to
     # their final column names via the `field_mapping` field of the source.
-    _feature_names = set(feature_names) - set(join_keys)
-    _feature_names = _feature_names - {event_timestamp_column, created_timestamp_column}
-    feature_names = list(_feature_names)
+    feature_names = [
+        name
+        for name in feature_names
+        if name not in join_keys
+        and name != event_timestamp_column
+        and name != created_timestamp_column
+    ]
     return (
         join_keys,
         feature_names,
@@ -348,9 +352,9 @@ def _convert_arrow_to_proto(
     if isinstance(table, pyarrow.Table):
         table = table.to_batches()[0]
 
-    columns = [(f.name, f.dtype) for f in feature_view.features] + list(
-        join_keys.items()
-    )
+    columns = [
+        (field.name, field.dtype.to_value_type()) for field in feature_view.schema
+    ] + list(join_keys.items())
 
     proto_values_by_column = {
         column: python_values_to_proto_values(
@@ -378,7 +382,7 @@ def _convert_arrow_to_proto(
     event_timestamps = [
         _coerce_datetime(val)
         for val in pandas.to_datetime(
-            table.column(feature_view.batch_source.event_timestamp_column).to_numpy(
+            table.column(feature_view.batch_source.timestamp_field).to_numpy(
                 zero_copy_only=False
             )
         )

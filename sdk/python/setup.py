@@ -11,25 +11,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 import glob
+import json
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
 from distutils.cmd import Command
+from distutils.dir_util import copy_tree
 from pathlib import Path
 from subprocess import CalledProcessError
 
-from setuptools import find_packages
+from setuptools import find_packages, Extension
 
 try:
     from setuptools import setup
     from setuptools.command.build_py import build_py
+    from setuptools.command.build_ext import build_ext as _build_ext
     from setuptools.command.develop import develop
     from setuptools.command.install import install
+
 except ImportError:
     from distutils.command.build_py import build_py
+    from distutils.command.build_ext import build_ext as _build_ext
     from distutils.core import setup
 
 NAME = "feast"
@@ -39,7 +46,7 @@ AUTHOR = "Feast"
 REQUIRES_PYTHON = ">=3.7.0"
 
 REQUIRED = [
-    "Click>=7.*",
+    "click>=7.0.0",
     "colorama>=0.3.9",
     "dill==0.3.*",
     "fastavro>=1.1.0",
@@ -52,7 +59,7 @@ REQUIRED = [
     "mmh3",
     "pandas>=1.0.0",
     "pandavro==1.5.*",
-    "protobuf>=3.10",
+    "protobuf>=3.10,<3.20",
     "proto-plus<1.19.7",
     "pyarrow>=4.0.0",
     "pydantic>=1.0.0",
@@ -69,7 +76,7 @@ REQUIRED = [
 ]
 
 GCP_REQUIRED = [
-    "google-cloud-bigquery>=2.28.1",
+    "google-cloud-bigquery>=2,<3",
     "google-cloud-bigquery-storage >= 2.0.0",
     "google-cloud-datastore>=2.1.*",
     "google-cloud-storage>=1.34.*,<1.41",
@@ -77,8 +84,7 @@ GCP_REQUIRED = [
 ]
 
 REDIS_REQUIRED = [
-    "redis==3.5.3",
-    "redis-py-cluster>=2.1.3",
+    "redis==4.2.2",
     "hiredis>=2.0.0",
 ]
 
@@ -95,23 +101,27 @@ SPARK_REQUIRED = [
     "pyspark>=3.0.0",
 ]
 
+TRINO_REQUIRED = [
+    "trino>=0.305.0,<0.400.0",
+]
+
 GE_REQUIRED = [
     "great_expectations>=0.14.0,<0.15.0"
 ]
 
 CI_REQUIRED = (
     [
-        "cryptography==3.3.2",
+        "cryptography==3.4.8",
         "flake8",
         "black==19.10b0",
         "isort>=5",
-        "grpcio-tools==1.34.0",
-        "grpcio-testing==1.34.0",
+        "grpcio-tools==1.44.0",
+        "grpcio-testing==1.44.0",
         "minio==7.1.0",
         "mock==2.0.0",
         "moto",
         "mypy==0.931",
-        "mypy-protobuf==3.1.0",
+        "mypy-protobuf==3.1",
         "avro==1.10.0",
         "gcsfs",
         "urllib3>=1.25.4",
@@ -126,12 +136,13 @@ CI_REQUIRED = (
         "pytest-mock==1.10.4",
         "Sphinx!=4.0.0,<4.4.0",
         "sphinx-rtd-theme",
-        "testcontainers==3.4.2",
+        "testcontainers>=3.5",
         "adlfs==0.5.9",
         "firebase-admin==4.5.2",
         "pre-commit",
         "assertpy==1.1",
         "pip-tools",
+        "pybindgen",
         "types-protobuf",
         "types-python-dateutil",
         "types-pytz",
@@ -146,10 +157,11 @@ CI_REQUIRED = (
         + AWS_REQUIRED
         + SNOWFLAKE_REQUIRED
         + SPARK_REQUIRED
+        + TRINO_REQUIRED
         + GE_REQUIRED
 )
 
-DEV_REQUIRED = ["mypy-protobuf>=3.1.0", "grpcio-testing==1.*"] + CI_REQUIRED
+DEV_REQUIRED = ["mypy-protobuf==3.1", "grpcio-testing==1.*"] + CI_REQUIRED
 
 # Get git repo root directory
 repo_root = str(pathlib.Path(__file__).resolve().parent.parent.parent)
@@ -181,7 +193,7 @@ class BuildPythonProtosCommand(Command):
 
     def initialize_options(self):
         self.python_protoc = [
-            "python",
+            sys.executable,
             "-m",
             "grpc_tools.protoc",
         ]  # find_executable("protoc")
@@ -282,10 +294,9 @@ class BuildGoProtosCommand(Command):
     description = "Builds the proto files into Go files."
     user_options = []
 
-
     def initialize_options(self):
         self.go_protoc = [
-            "python",
+            sys.executable,
             "-m",
             "grpc_tools.protoc",
         ]  # find_executable("protoc")
@@ -317,22 +328,11 @@ class BuildGoProtosCommand(Command):
             print(f"Stderr: {e.stderr}")
             print(f"Stdout: {e.stdout}")
 
-    def _compile_go_feature_server(self):
-        print("Compile go feature server")
-        subprocess.check_call(["go",
-                               "build",
-                               "-work",
-                               "-x",
-                               "-o",
-                               f"{repo_root}/sdk/python/feast/binaries/server",
-                               f"github.com/feast-dev/feast/go/cmd/server"])
-
     def run(self):
         go_dir = Path(repo_root) / "go" / "protos"
         go_dir.mkdir(exist_ok=True)
         for sub_folder in self.sub_folders:
             self._generate_go_protos(f"feast/{sub_folder}/*.proto")
-        self._compile_go_feature_server()
 
 
 class BuildCommand(build_py):
@@ -343,6 +343,7 @@ class BuildCommand(build_py):
         if os.getenv("COMPILE_GO", "false").lower() == "true":
             _ensure_go_and_proto_toolchain()
             self.run_command("build_go_protos")
+
         build_py.run(self)
 
 
@@ -354,7 +355,61 @@ class DevelopCommand(develop):
         if os.getenv("COMPILE_GO", "false").lower() == "true":
             _ensure_go_and_proto_toolchain()
             self.run_command("build_go_protos")
+
         develop.run(self)
+
+
+class build_ext(_build_ext):
+    def finalize_options(self) -> None:
+        super().finalize_options()
+        if os.getenv("COMPILE_GO", "false").lower() == "false":
+            self.extensions = [e for e in self.extensions if not self._is_go_ext(e)]
+
+    def _is_go_ext(self, ext: Extension):
+        return any(source.endswith('.go') or source.startswith('github') for source in ext.sources)
+
+    def build_extension(self, ext: Extension):
+        if not self._is_go_ext(ext):
+            # the base class may mutate `self.compiler`
+            compiler = copy.deepcopy(self.compiler)
+            self.compiler, compiler = compiler, self.compiler
+            try:
+                return _build_ext.build_extension(self, ext)
+            finally:
+                self.compiler, compiler = compiler, self.compiler
+
+        bin_path = _generate_path_with_gopath()
+        go_env = json.loads(
+            subprocess.check_output(["go", "env", "-json"]).decode("utf-8").strip()
+        )
+
+        destination = os.path.dirname(os.path.abspath(self.get_ext_fullpath(ext.name)))
+        subprocess.check_call([
+            "gopy",
+            "build",
+            "-output",
+            destination,
+            "-vm",
+            sys.executable,
+            "-no-make",
+            *ext.sources
+        ], env={
+            "PATH": bin_path,
+            "CGO_LDFLAGS_ALLOW": ".*",
+            **go_env,
+        })
+
+    def copy_extensions_to_source(self):
+        build_py = self.get_finalized_command('build_py')
+        for ext in self.extensions:
+            fullname = self.get_ext_fullname(ext.name)
+            modpath = fullname.split('.')
+            package = '.'.join(modpath[:-1])
+            package_dir = build_py.get_package_dir(package)
+            src = os.path.join(self.build_lib, package_dir)
+
+            # copy whole directory
+            copy_tree(src, package_dir)
 
 
 setup(
@@ -377,6 +432,7 @@ setup(
         "redis": REDIS_REQUIRED,
         "snowflake": SNOWFLAKE_REQUIRED,
         "spark": SPARK_REQUIRED,
+        "trino": TRINO_REQUIRED,
         "ge": GE_REQUIRED,
     },
     include_package_data=True,
@@ -394,8 +450,8 @@ setup(
     setup_requires=[
         "setuptools_scm",
         "grpcio",
-        "grpcio-tools==1.34.0",
-        "mypy-protobuf==3.1.0",
+        "grpcio-tools==1.44.0",
+        "mypy-protobuf==3.1",
         "sphinx!=4.0.0",
     ],
     package_data={
@@ -410,5 +466,8 @@ setup(
         "build_go_protos": BuildGoProtosCommand,
         "build_py": BuildCommand,
         "develop": DevelopCommand,
+        "build_ext": build_ext,
     },
+    ext_modules=[Extension('feast.embedded_go.lib._embedded',
+                           ["github.com/feast-dev/feast/go/embedded"])],
 )

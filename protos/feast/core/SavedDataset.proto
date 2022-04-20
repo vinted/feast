@@ -24,7 +24,6 @@ option go_package = "github.com/feast-dev/feast/go/protos/feast/core";
 
 import "google/protobuf/timestamp.proto";
 import "feast/core/DataSource.proto";
-import "feast/core/FeatureService.proto";
 
 message SavedDatasetSpec {
   // Name of the dataset. Must be unique since it's possible to overwrite dataset by name
@@ -57,6 +56,8 @@ message SavedDatasetStorage {
     DataSource.BigQueryOptions bigquery_storage = 5;
     DataSource.RedshiftOptions redshift_storage = 6;
     DataSource.SnowflakeOptions snowflake_storage = 7;
+    DataSource.TrinoOptions trino_storage = 8;
+    DataSource.SparkOptions spark_storage = 9;
   }
 }
 
