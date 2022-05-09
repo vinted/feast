@@ -57,6 +57,7 @@ REQUIRED = [
     "Jinja2>=2.0.0",
     "jsonschema",
     "mmh3",
+    "numpy<1.22",  # 1.22 drops support for python 3.7.
     "pandas>=1.0.0",
     "pandavro==1.5.*",
     "protobuf>=3.10,<3.20",
@@ -107,6 +108,10 @@ TRINO_REQUIRED = [
 
 GE_REQUIRED = [
     "great_expectations>=0.14.0,<0.15.0"
+]
+
+GO_REQUIRED = [
+    "cffi==1.15.*",
 ]
 
 CI_REQUIRED = (
@@ -434,6 +439,7 @@ setup(
         "spark": SPARK_REQUIRED,
         "trino": TRINO_REQUIRED,
         "ge": GE_REQUIRED,
+        "go": GO_REQUIRED,
     },
     include_package_data=True,
     license="Apache",
