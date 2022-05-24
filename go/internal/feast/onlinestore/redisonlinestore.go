@@ -25,6 +25,10 @@ const (
 	redisCluster redisType = 1
 )
 
+type RedisClient interface {
+	Pipeline() redis.Pipeliner
+}
+
 type RedisOnlineStore struct {
 
 	// Feast project name
@@ -35,7 +39,7 @@ type RedisOnlineStore struct {
 	t redisType
 
 	// Redis client connector
-	client *redis.Client
+	client RedisClient
 }
 
 func NewRedisOnlineStore(project string, onlineStoreConfig map[string]interface{}) (*RedisOnlineStore, error) {
@@ -92,7 +96,10 @@ func NewRedisOnlineStore(project string, onlineStoreConfig map[string]interface{
 			DB:       db,
 		})
 	} else {
-		return nil, errors.New("only single node Redis is supported at this time")
+		// return nil, errors.New("only single node Redis is supported at this time")
+		store.client = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs: address,
+		})
 	}
 
 	return &store, nil

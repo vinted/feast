@@ -22,8 +22,15 @@ type FeatureView struct {
 }
 
 func NewFeatureViewFromProto(proto *core.FeatureView) *FeatureView {
+	var ttl durationpb.Duration
+
+	if proto.Spec.Ttl != nil {
+		ttl = *proto.Spec.Ttl
+	} else {
+		ttl = durationpb.Duration{Seconds: 99999999, Nanos: 0}
+	}
 	featureView := &FeatureView{Base: NewBaseFeatureView(proto.Spec.Name, proto.Spec.Features),
-		Ttl: &(*proto.Spec.Ttl),
+		Ttl: &ttl,
 	}
 	if len(proto.Spec.Entities) == 0 {
 		featureView.Entities = []string{DUMMY_ENTITY_NAME}
