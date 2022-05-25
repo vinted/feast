@@ -12,16 +12,23 @@ ENTITIES_100 = ENTITIES_DF[:100].to_dict(orient="records")
 ENTITIES_200 = ENTITIES_DF[:200].to_dict(orient="records")
 ENTITIES_400 = ENTITIES_DF[:400].to_dict(orient="records")
 
+# FEATURES = [
+#     "titanic_features_v1:Sex",
+#     "titanic_features_v1:Age",
+#     "titanic_features_v1:SibSp",
+#     "titanic_features_v1:Parch",
+#     "titanic_features_v1:Fare",
+#     "titanic_features_v1:Cabin",
+#     "titanic_features_v1:Embarked",
+# ]
+
 FEATURES = [
     "titanic_features_v1:Sex",
-    "titanic_features_v1:Age",
     "titanic_features_v1:SibSp",
     "titanic_features_v1:Parch",
     "titanic_features_v1:Fare",
-    "titanic_features_v1:Cabin",
     "titanic_features_v1:Embarked",
 ]
-
 
 def measure_online_features(
     feature_store: FeatureStore,
@@ -94,38 +101,38 @@ if __name__ == "__main__":
         feature_store=fs,
         features=FEATURES,
         entity_rows=ENTITIES_1,
-        iteration_nr=10,
+        iteration_nr=100,
         test_name="Titanic 1 entity",
     )
 
-    # run_test(
-    #     feature_store=fs,
-    #     features=FEATURES,
-    #     entity_rows=ENTITIES_50,
-    #     iteration_nr=100,
-    #     test_name="Titanic 50 entities",
-    # )
+    run_test(
+        feature_store=fs,
+        features=FEATURES,
+        entity_rows=ENTITIES_50,
+        iteration_nr=100,
+        test_name="Titanic 50 entities",
+    )
 
-    # run_test(
-    #     feature_store=fs,
-    #     features=FEATURES,
-    #     entity_rows=ENTITIES_100,
-    #     iteration_nr=100,
-    #     test_name="Titanic 50 entities",
-    # )
+    run_test(
+        feature_store=fs,
+        features=FEATURES,
+        entity_rows=ENTITIES_100,
+        iteration_nr=100,
+        test_name="Titanic 100 entities",
+    )
 
-    # run_test(
-    #     feature_store=fs,
-    #     features=FEATURES,
-    #     entity_rows=ENTITIES_200,
-    #     iteration_nr=100,
-    #     test_name="Titanic 50 entities",
-    # )
+    run_test(
+        feature_store=fs,
+        features=FEATURES,
+        entity_rows=ENTITIES_200,
+        iteration_nr=100,
+        test_name="Titanic 200 entities",
+    )
 
-    # run_test(
-    #     feature_store=fs,
-    #     features=FEATURES,
-    #     entity_rows=ENTITIES_400,
-    #     iteration_nr=100,
-    #     test_name="Titanic 50 entities",
-    # )
+    run_test(
+        feature_store=fs,
+        features=FEATURES,
+        entity_rows=ENTITIES_400,
+        iteration_nr=100,
+        test_name="Titanic 400 entities",
+    )
