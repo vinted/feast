@@ -48,10 +48,10 @@ REQUIRES_PYTHON = ">=3.7.0"
 REQUIRED = [
     "click>=7.0.0,<9.0.0",
     "colorama>=0.3.9,<1",
-    "dill==0.3.*",
+    "dill~=0.3.0",
     "fastavro>=1.1.0,<2",
     "google-api-core>=1.23.0,<3",
-    "googleapis-common-protos>=1.52.*,<2",
+    "googleapis-common-protos>=1.52.0,<2",
     "grpcio>=1.47.0,<2",
     "grpcio-reflection>=1.47.0,<2",
     "Jinja2>=2,<4",
@@ -59,13 +59,13 @@ REQUIRED = [
     "mmh3",
     "numpy>=1.22,<3",
     "pandas>=1.4.3,<2",
-    "pandavro==1.5.*", # For some reason pandavro higher than 1.5.* only support pandas less than 1.3.
+    "pandavro~=1.5.0", # For some reason pandavro higher than 1.5.* only support pandas less than 1.3.
     "protobuf>3.20,<4",
     "proto-plus>=1.20.0,<2",
     "pyarrow>=4,<9",
     "pydantic>=1,<2",
     "pygments>=2.12.0,<3",
-    "PyYAML>=5.4.*,<7",
+    "PyYAML>=5.4.0,<7",
     "SQLAlchemy[mypy]>1,<2",
     "tabulate>=0.8.0,<1",
     "tenacity>=7,<9",
@@ -75,15 +75,15 @@ REQUIRED = [
     "fastapi>=0.68.0,<1",
     "uvicorn[standard]>=0.14.0,<1",
     "tensorflow-metadata>=1.0.0,<2.0.0",
-    "dask>=2021.*,<2022.02.0",
+    "dask>=2021.1.0,<2022.02.0",
     "bowler",  # Needed for automatic repo upgrades
 ]
 
 GCP_REQUIRED = [
     "google-cloud-bigquery[pandas]>=2,<4",
     "google-cloud-bigquery-storage >= 2.0.0,<3",
-    "google-cloud-datastore>=2.1.*,<3",
-    "google-cloud-storage>=1.34.*,<3",
+    "google-cloud-datastore>=2.1.0,<3",
+    "google-cloud-storage>=1.34.0,<3",
 ]
 
 REDIS_REQUIRED = [
@@ -120,7 +120,7 @@ HBASE_REQUIRED = [
 GE_REQUIRED = ["great_expectations>=0.14.0,<0.15.0"]
 
 GO_REQUIRED = [
-    "cffi==1.15.*,<2",
+    "cffi~=1.15.0",
 ]
 
 CI_REQUIRED = (
@@ -135,7 +135,7 @@ CI_REQUIRED = (
         "minio==7.1.0",
         "mock==2.0.0",
         "moto",
-        "mypy>=0.931",
+        "mypy>=0.981,<0.990",
         "mypy-protobuf==3.1",
         "avro==1.10.0",
         "gcsfs>=0.4.0,<=2022.01.0",
@@ -147,7 +147,7 @@ CI_REQUIRED = (
         "pytest-benchmark>=3.4.1,<4",
         "pytest-lazy-fixture==0.6.3",
         "pytest-timeout==1.4.2",
-        "pytest-ordering==0.6.*",
+        "pytest-ordering~=0.6.0",
         "pytest-mock==1.10.4",
         "Sphinx!=4.0.0,<4.4.0",
         "sphinx-rtd-theme",
@@ -158,7 +158,7 @@ CI_REQUIRED = (
         "assertpy==1.1",
         "pip-tools",
         "pybindgen",
-        "types-protobuf",
+        "types-protobuf~=3.19.22",
         "types-python-dateutil",
         "types-pytz",
         "types-PyYAML",
@@ -186,7 +186,7 @@ DOCS_REQUIRED = CI_REQUIRED.copy()
 for _r in MYSQL_REQUIRED:
     DOCS_REQUIRED.remove(_r)
 
-DEV_REQUIRED = ["mypy-protobuf==3.1", "grpcio-testing==1.*"] + CI_REQUIRED
+DEV_REQUIRED = ["mypy-protobuf==3.1", "grpcio-testing~=1.0"] + CI_REQUIRED
 
 # Get git repo root directory
 repo_root = str(pathlib.Path(__file__).resolve().parent)
