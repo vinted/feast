@@ -30,6 +30,7 @@ class BytewaxMaterializationDataflow:
 
     def process_path(self, path):
         fs = s3fs.S3FileSystem()
+        print(f"Processing path {path}")
         dataset = pq.ParquetDataset(path, filesystem=fs, use_legacy_dataset=False)
         batches = []
         for fragment in dataset.fragments:
