@@ -5,12 +5,15 @@ import pyarrow.parquet as pq
 import s3fs
 from bytewax.dataflow import Dataflow  # type: ignore
 from bytewax.execution import cluster_main
-from bytewax.inputs import ManualInputConfig, distribute
+from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
 from tqdm import tqdm
+import logging
 
 from feast import FeatureStore, FeatureView, RepoConfig
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
+
+logger = logging.getLogger(__name__)
 
 
 class BytewaxMaterializationDataflow:
@@ -19,18 +22,20 @@ class BytewaxMaterializationDataflow:
         config: RepoConfig,
         feature_view: FeatureView,
         paths: List[str],
+        worker_index: int
     ):
         self.config = config
         self.feature_store = FeatureStore(config=config)
 
         self.feature_view = feature_view
+        self.worker_index = worker_index
         self.paths = paths
 
         self._run_dataflow()
 
     def process_path(self, path):
         fs = s3fs.S3FileSystem()
-        print(f"Processing path {path}")
+        logger.info(f"Processing path {path}")
         dataset = pq.ParquetDataset(path, filesystem=fs, use_legacy_dataset=False)
         batches = []
         for fragment in dataset.fragments:
@@ -40,11 +45,7 @@ class BytewaxMaterializationDataflow:
         return batches
 
     def input_builder(self, worker_index, worker_count, _state):
-        worker_paths = distribute(self.paths, worker_index, worker_count)
-        for path in worker_paths:
-            yield None, path
-
-        return
+        return [(None, self.paths[self.worker_index])]
 
     def output_builder(self, worker_index, worker_count):
         def output_fn(batch):
