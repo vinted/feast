@@ -84,6 +84,8 @@ class BytewaxMaterializationEngineConfig(FeastConfigBaseModel):
     retry_limit: int = 2
     """ (optional) Maximum number of times to retry a materialization worker pod"""
 
+    active_deadline_seconds: int = 86400
+    """ (optional) Maximum amount of time a materialization job is allowed to run"""
 
 class BytewaxMaterializationEngine(BatchMaterializationEngine):
     def __init__(
@@ -326,6 +328,7 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
                 "backoffLimit": self.batch_engine_config.retry_limit,
                 "completions": pods,
                 "parallelism": min(pods, self.batch_engine_config.max_parallelism),
+                "activeDeadlineSeconds": self.batch_engine_config.active_deadline_seconds,
                 "completionMode": "Indexed",
                 "template": {
                     "metadata": {
