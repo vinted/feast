@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 import pyarrow as pa
@@ -8,7 +9,6 @@ from bytewax.execution import cluster_main
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import ManualOutputConfig
 from tqdm import tqdm
-import logging
 
 from feast import FeatureStore, FeatureView, RepoConfig
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
@@ -22,7 +22,7 @@ class BytewaxMaterializationDataflow:
         config: RepoConfig,
         feature_view: FeatureView,
         paths: List[str],
-        worker_index: int
+        worker_index: int,
     ):
         self.config = config
         self.feature_store = FeatureStore(config=config)
