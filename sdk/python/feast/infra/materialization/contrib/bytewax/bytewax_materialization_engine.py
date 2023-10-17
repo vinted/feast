@@ -88,6 +88,9 @@ class BytewaxMaterializationEngineConfig(FeastConfigBaseModel):
     print_pod_logs_on_failure: bool = True
     """(optional) Print pod logs on job failure.  Only applies to synchronous materialization"""
 
+    mini_batch_size: int = 1000
+    """ (optional) Number of rows to process per write operation (default 1000)"""
+
 
 class BytewaxMaterializationEngine(BatchMaterializationEngine):
     def __init__(
@@ -361,6 +364,10 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
             {
                 "name": "BYTEWAX_STATEFULSET_NAME",
                 "value": f"dataflow-{job_id}",
+            },
+            {
+                "name": "BYTEWAX_MINI_BATCH_SIZE",
+                "value": str(self.batch_engine_config.mini_batch_size),
             },
         ]
         # Add any Feast configured environment variables
