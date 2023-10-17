@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 import psycopg2
@@ -30,8 +31,8 @@ class PostgreSQLRegistryStore(RegistryStore):
             port=config.port,
             database=config.database,
             db_schema=config.db_schema,
-            user=config.user,
-            password=config.password,
+            user=os.environ.get("FEAST_REGISTRY_PSQL_USER", config.user),
+            password=os.environ.get("FEAST_REGISTRY_PSQL_PASSWORD", config.password),
             sslmode=getattr(config, "sslmode", None),
             sslkey_path=getattr(config, "sslkey_path", None),
             sslcert_path=getattr(config, "sslcert_path", None),
