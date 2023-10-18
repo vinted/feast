@@ -1,4 +1,5 @@
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
@@ -199,7 +200,16 @@ class SqlRegistry(BaseRegistry):
         repo_path: Optional[Path],
     ):
         assert registry_config is not None, "SqlRegistry needs a valid registry_config"
-        self.engine: Engine = create_engine(registry_config.path, echo=False)
+        
+        sqlalchemy_url = registry_config.path
+        if "__placeholder_password__" in sqlalchemy_url:
+            secret_password = os.getenv("FEAST_SQL_REGISTRY_PASSWORD")
+            if secret_password:
+                sqlalchemy_url = sqlalchemy_url.replace("__placeholder_password__", secret_password)
+            else:
+                raise ValueError("'FEAST_SQL_REGISTRY_PASSWORD' is not set!")
+            
+        self.engine: Engine = create_engine(sqlalchemy_url, echo=False)
         metadata.create_all(self.engine)
         self.cached_registry_proto = self.proto()
         proto_registry_utils.init_project_metadata(self.cached_registry_proto, project)
