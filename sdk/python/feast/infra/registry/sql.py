@@ -205,7 +205,9 @@ class SqlRegistry(BaseRegistry):
         if "__placeholder_password__" in sqlalchemy_url:
             secret_password = os.getenv("FEAST_SQL_REGISTRY_PASSWORD")
             if secret_password:
-                sqlalchemy_url = sqlalchemy_url.replace("__placeholder_password__", secret_password)
+                sqlalchemy_url = sqlalchemy_url.replace(
+                    "__placeholder_password__", secret_password
+                )
             else:
                 raise ValueError("'FEAST_SQL_REGISTRY_PASSWORD' is not set!")
 
