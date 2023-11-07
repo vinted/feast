@@ -1,4 +1,5 @@
 import contextlib
+import os
 import tempfile
 import uuid
 from datetime import date, datetime, timedelta
@@ -74,7 +75,8 @@ def get_http_client_info():
 
 class BigQueryTableCreateDisposition(ConstrainedStr):
     """Custom constraint for table_create_disposition. To understand more, see:
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#JobConfigurationLoad.FIELDS.create_disposition"""
+    https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#JobConfigurationLoad.FIELDS.create_disposition
+    """
 
     values = {"CREATE_NEVER", "CREATE_IF_NEEDED"}
 
@@ -571,12 +573,22 @@ class BigQueryRetrievalJob(RetrievalJob):
 
         table = self.to_bigquery()
 
+        parquet_file_size_mb = os.getenv("BQ_EXPORT_PARQUET_FILE_SIZE_MB")
+        if parquet_file_size_mb is not None:
+            table_size_in_mb = self.client.get_table(table).num_bytes / 1024 / 1024
+            number_of_files = max(1, table_size_in_mb // int(parquet_file_size_mb))
+            destination_uris = [
+                f"{self._gcs_path}/{n:0>12}.parquet" for n in range(number_of_files)
+            ]
+        else:
+            destination_uris = [f"{self._gcs_path}/*.parquet"]
+
         job_config = bigquery.job.ExtractJobConfig()
         job_config.destination_format = "PARQUET"
 
         extract_job = self.client.extract_table(
             table,
-            destination_uris=[f"{self._gcs_path}/*.parquet"],
+            destination_uris=destination_uris,
             location=self.config.offline_store.location,
             job_config=job_config,
         )
