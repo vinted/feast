@@ -14,12 +14,12 @@ from typing import (
     Union,
 )
 
+from typing_extensions import Literal
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 from jinja2 import BaseLoader, Environment
 from psycopg2 import sql
-from pydantic.typing import Literal
 from pytz import utc
 
 from feast.data_source import DataSource

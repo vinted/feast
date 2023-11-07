@@ -22,7 +22,6 @@ class SparkProcessorConfig(ProcessorConfig):
     processing_time: str
     query_timeout: int
 
-
 class SparkKafkaProcessor(StreamProcessor):
     spark: SparkSession
     format: str

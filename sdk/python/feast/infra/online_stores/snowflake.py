@@ -3,10 +3,10 @@ import os
 from binascii import hexlify
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing_extensions import Literal
 
 import pandas as pd
-from pydantic import Field, StrictStr
-from pydantic.schema import Literal
+from pydantic import ConfigDict, Field, StrictStr
 
 from feast.entity import Entity
 from feast.feature_view import FeatureView
@@ -57,9 +57,7 @@ class SnowflakeOnlineStoreConfig(FeastConfigBaseModel):
 
     schema_: Optional[str] = Field("PUBLIC", alias="schema")
     """ Snowflake schema name """
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SnowflakeOnlineStore(OnlineStore):

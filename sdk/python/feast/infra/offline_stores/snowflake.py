@@ -19,11 +19,11 @@ from typing import (
     cast,
 )
 
+from typing_extensions import Literal
 import numpy as np
 import pandas as pd
 import pyarrow
-from pydantic import Field, StrictStr
-from pydantic.typing import Literal
+from pydantic import ConfigDict, Field, StrictStr
 from pytz import utc
 
 from feast import OnDemandFeatureView
@@ -107,9 +107,7 @@ class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
 
     convert_timestamp_columns: Optional[bool] = None
     """ Convert timestamp columns on export to a Parquet-supported format """
-
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SnowflakeOfflineStore(OfflineStore):

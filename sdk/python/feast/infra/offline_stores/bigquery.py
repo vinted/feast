@@ -14,13 +14,13 @@ from typing import (
     Tuple,
     Union,
 )
+from typing_extensions import Literal
 
 import numpy as np
 import pandas as pd
 import pyarrow
 import pyarrow.parquet
-from pydantic import ConstrainedStr, StrictStr, validator
-from pydantic.typing import Literal
+from pydantic import StringConstraints, StrictStr, validator
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from feast import flags_helper
@@ -72,7 +72,7 @@ def get_http_client_info():
     return http_client_info.ClientInfo(user_agent=get_user_agent())
 
 
-class BigQueryTableCreateDisposition(ConstrainedStr):
+class BigQueryTableCreateDisposition(StringConstraints):
     """Custom constraint for table_create_disposition. To understand more, see:
     https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#JobConfigurationLoad.FIELDS.create_disposition"""
 
@@ -105,6 +105,8 @@ class BigQueryOfflineStoreConfig(FeastConfigBaseModel):
     table_create_disposition: Optional[BigQueryTableCreateDisposition] = None
     """ (optional) Specifies whether the job is allowed to create new tables. The default value is CREATE_IF_NEEDED."""
 
+    # TODO[pydantic]: We couldn't refactor the `validator`, please replace it by `field_validator` manually.
+    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-validators for more information.
     @validator("billing_project_id")
     def project_id_exists(cls, v, values, **kwargs):
         if v and not values["project_id"]:
@@ -515,7 +517,7 @@ class BigQueryRetrievalJob(RetrievalJob):
                 temp_dest_table = f"{tmp_dest['projectId']}.{tmp_dest['datasetId']}.{tmp_dest['tableId']}"
 
                 # persist temp table
-                sql = f"CREATE TABLE `{dest}` AS SELECT * FROM {temp_dest_table}"
+                sql = f"CREATE TABLE `{dest}` AS SELECT * FROM `{temp_dest_table}`"
                 self._execute_query(sql, timeout=timeout)
 
             print(f"Done writing to '{dest}'.")

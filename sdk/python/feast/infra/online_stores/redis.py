@@ -27,10 +27,10 @@ from typing import (
     Union,
 )
 
+from typing_extensions import Literal
 import pytz
 from google.protobuf.timestamp_pb2 import Timestamp
 from pydantic import StrictStr
-from pydantic.typing import Literal
 
 from feast import Entity, FeatureView, RepoConfig, utils
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
