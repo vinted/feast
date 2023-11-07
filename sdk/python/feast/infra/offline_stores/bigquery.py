@@ -574,7 +574,7 @@ class BigQueryRetrievalJob(RetrievalJob):
         table = self.to_bigquery()
 
         parquet_file_size_mb = os.getenv("BQ_EXPORT_PARQUET_FILE_SIZE_MB")
-        if parquet_file_size_mb is not None:
+        if parquet_file_size_mb is not None and parquet_file_size_mb.isdigit():
             table_size_in_mb = self.client.get_table(table).num_bytes / 1024 / 1024
             number_of_files = max(1, table_size_in_mb // int(parquet_file_size_mb))
             destination_uris = [
