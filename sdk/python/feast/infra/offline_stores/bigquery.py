@@ -574,12 +574,19 @@ class BigQueryRetrievalJob(RetrievalJob):
         table = self.to_bigquery()
 
         parquet_file_size_mb = os.getenv("BQ_EXPORT_PARQUET_FILE_SIZE_MB")
-        if parquet_file_size_mb is not None and parquet_file_size_mb.isdigit():
+        if parquet_file_size_mb is not None:
+            if not parquet_file_size_mb.isdigit():
+                raise ValueError(
+                    "The value for the BQ_EXPORT_PARQUET_FILE_SIZE_MB environment variable must "
+                    "be a numeric digit, but it was set to: %s",
+                    parquet_file_size_mb,
+                )
+
             parquet_file_size_mb_int = int(parquet_file_size_mb)
             if parquet_file_size_mb_int > 1000:
                 raise ValueError(
                     "The value for the BQ_EXPORT_PARQUET_FILE_SIZE_MB environment variable cannot "
-                    "exceed 1000; however, it was set to %s.",
+                    "exceed 1000; however, it was set to: %s.",
                     parquet_file_size_mb_int,
                 )
 
