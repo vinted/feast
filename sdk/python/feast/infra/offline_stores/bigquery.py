@@ -581,7 +581,7 @@ class BigQueryRetrievalJob(RetrievalJob):
             table_size_in_mb = self.client.get_table(table).num_bytes / 1024 / 1024
             number_of_files = max(
                 1,
-                table_size_in_mb // self.config.offline_store.gcs_staging_file_size_mb,
+                int(table_size_in_mb // self.config.offline_store.gcs_staging_file_size_mb),
             )
             destination_uris = [
                 f"{self._gcs_path}/{n:0>12}.parquet" for n in range(number_of_files)
