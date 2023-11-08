@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pyarrow
 import pyarrow.parquet
-from pydantic import ConstrainedStr, StrictStr, validator
+from pydantic import ConstrainedStr, Field, StrictStr, validator
 from pydantic.typing import Literal
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
@@ -103,6 +103,9 @@ class BigQueryOfflineStoreConfig(FeastConfigBaseModel):
 
     gcs_staging_location: Optional[str] = None
     """ (optional) GCS location used for offloading BigQuery results as parquet files."""
+
+    gcs_staging_file_size_mb: Optional[int] = Field(None, ge=1, le=1000)
+    """ (optional) Specify the staging file size in Megabytes. If it is not set, the BigQuery export function will determine the export file size automatically."""
 
     table_create_disposition: Optional[BigQueryTableCreateDisposition] = None
     """ (optional) Specifies whether the job is allowed to create new tables. The default value is CREATE_IF_NEEDED."""
@@ -571,27 +574,16 @@ class BigQueryRetrievalJob(RetrievalJob):
                 "offline store when executing `to_remote_storage()`"
             )
 
+        assert isinstance(self.config.offline_store, BigQueryOfflineStoreConfig)
+
         table = self.to_bigquery()
 
-        parquet_file_size_mb = os.getenv("BQ_EXPORT_PARQUET_FILE_SIZE_MB")
-        if parquet_file_size_mb is not None:
-            if not parquet_file_size_mb.isdigit():
-                raise ValueError(
-                    "The value for the BQ_EXPORT_PARQUET_FILE_SIZE_MB environment variable must "
-                    "be a numeric digit, but it was set to: %s",
-                    parquet_file_size_mb,
-                )
-
-            parquet_file_size_mb_int = int(parquet_file_size_mb)
-            if parquet_file_size_mb_int > 1000:
-                raise ValueError(
-                    "The value for the BQ_EXPORT_PARQUET_FILE_SIZE_MB environment variable cannot "
-                    "exceed 1000; however, it was set to: %s.",
-                    parquet_file_size_mb_int,
-                )
-
+        if self.config.offline_store.gcs_staging_file_size_mb is not None:
             table_size_in_mb = self.client.get_table(table).num_bytes / 1024 / 1024
-            number_of_files = max(1, table_size_in_mb // parquet_file_size_mb_int)
+            number_of_files = max(
+                1,
+                table_size_in_mb // self.config.offline_store.gcs_staging_file_size_mb,
+            )
             destination_uris = [
                 f"{self._gcs_path}/{n:0>12}.parquet" for n in range(number_of_files)
             ]
