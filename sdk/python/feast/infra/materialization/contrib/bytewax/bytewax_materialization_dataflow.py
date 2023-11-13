@@ -37,7 +37,7 @@ class BytewaxMaterializationDataflow:
         self._run_dataflow()
 
     def process_path(self, path):
-        logger.info(f"Processing path {path}")
+        logger.info("Processing path %s", path)
         dataset = pq.ParquetDataset(path, use_legacy_dataset=False)
         batches = []
         for fragment in dataset.fragments:
