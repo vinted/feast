@@ -577,15 +577,15 @@ class BigQueryRetrievalJob(RetrievalJob):
 
         table = None
         try:
-            logger.info(f"Starting data export to '{self._gcs_path}'")
+            logger.info("Starting data export to '%s'", self._gcs_path)
             table = self.to_bigquery()
-            logger.info(f"Data exported to table '{table}'")
+            logger.info("Data exported to table '%s'", table)
 
             job_config = bigquery.job.ExtractJobConfig()
             job_config.destination_format = "PARQUET"
 
             logger.info(
-                f"Starting data extraction from '{table}' to '{self._gcs_path}'"
+                "Starting data extraction from '%s' to '%s'", table, self._gcs_path
             )
             extract_job = self.client.extract_table(
                 table,
@@ -612,11 +612,13 @@ class BigQueryRetrievalJob(RetrievalJob):
             for b in blobs:
                 results.append(f"gs://{b.bucket.name}/{b.name}")
 
-            logger.info(f"Data extraction completed. Extracted to {len(results)} files")
+            logger.info(
+                "Data extraction completed. Extracted to %s files", len(results)
+            )
             return results
         finally:
             if table:
-                logger.info(f"Cleanup: Deleting temporary table '{table}'")
+                logger.info("Cleanup: Deleting temporary table '%s'", table)
                 self.client.delete_table(table=table, not_found_ok=True)
 
 
