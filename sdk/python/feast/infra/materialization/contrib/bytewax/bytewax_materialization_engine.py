@@ -28,7 +28,6 @@ from feast.infra.registry.base_registry import BaseRegistry
 from feast.repo_config import FeastConfigBaseModel
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _get_column_names, get_default_yaml_file_path
-
 from .bytewax_materialization_job import BytewaxMaterializationJob
 
 logger = logging.getLogger(__name__)
@@ -235,35 +234,30 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
                 MaterializationJobStatus.WAITING,
                 MaterializationJobStatus.RUNNING,
             ):
-                logger.info(
-                    f"{feature_view.name} materialization for pods {batch_start}-{batch_end} "
-                    f"(of {total_pods}) running..."
-                )
+                logger.info("%s materialization for pods %d-%d (of %d) running...",
+                            feature_view.name, batch_start, batch_end, total_pods)
                 sleep(30)
-            logger.info(
-                f"{feature_view.name} materialization for pods {batch_start}-{batch_end} "
-                f"(of {total_pods}) complete with status {job.status()}"
-            )
+
+            logger.info("%s materialization for pods %d-%d (of %d) complete with status %s",
+                        feature_view.name, batch_start, batch_end, total_pods, job.status())
         except BaseException as e:
             if self.batch_engine_config.print_pod_logs_on_failure:
                 self._print_pod_logs(job.job_id(), feature_view, batch_start)
 
-            logger.info(f"Deleting job {job.job_id()}")
+            logger.info("Deleting job %s", job.job_id())
             try:
                 self.batch_v1.delete_namespaced_job(job.job_id(), self.namespace)
             except ApiException as ae:
-                logger.warning(f"Could not delete job due to API Error: {ae.body}")
+                logger.warning("Could not delete job due to API Error: %s", ae.body)
             raise e
         finally:
-            logger.info(f"Deleting configmap {self._configmap_name(job_id)}")
+            logger.info("Deleting configmap %s", self._configmap_name(job_id))
             try:
                 self.v1.delete_namespaced_config_map(
                     self._configmap_name(job_id), self.namespace
                 )
             except ApiException as ae:
-                logger.warning(
-                    f"Could not delete configmap due to API Error: {ae.body}"
-                )
+                logger.warning("Could not delete configmap due to API Error: %s", ae.body)
 
         return job
 
@@ -273,13 +267,13 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
             label_selector=f"job-name={job_id}",
         ).items
         for i, pod in enumerate(pods_list):
-            logger.info(f"Logging output for {feature_view.name} pod {offset+i}")
+            logger.info("Logging output for %s pod %d", feature_view.name, offset + i)
             try:
                 logger.info(
                     self.v1.read_namespaced_pod_log(pod.metadata.name, self.namespace)
                 )
             except ApiException as e:
-                logger.warning(f"Could not retrieve pod logs due to: {e.body}")
+                logger.warning("Could not retrieve pod logs due to: %s", e.body)
 
     def _create_kubernetes_job(self, job_id, paths, feature_view):
         try:
@@ -293,6 +287,8 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
                 len(paths),  # Create a pod for each parquet file
                 self.batch_engine_config.env,
             )
+
+            logger.info("Created job `dataflow-%s` in namespace `%s`", job_id, self.namespace)
         except FailToCreateError as failures:
             return BytewaxMaterializationJob(job_id, self.namespace, error=failures)
 
@@ -355,7 +351,7 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
             },
             {
                 "name": "BYTEWAX_REPLICAS",
-                "value": f"{pods}",
+                "value": "1",
             },
             {
                 "name": "BYTEWAX_KEEP_CONTAINER_ALIVE",
@@ -416,7 +412,7 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
                                     }
                                 ],
                                 "image": "busybox",
-                                "imagePullPolicy": "Always",
+                                "imagePullPolicy": "ifNotPresent",
                                 "name": "init-hostfile",
                                 "resources": {},
                                 "securityContext": {
@@ -444,7 +440,7 @@ class BytewaxMaterializationEngine(BatchMaterializationEngine):
                                 "command": ["sh", "-c", "sh ./entrypoint.sh"],
                                 "env": job_env,
                                 "image": self.batch_engine_config.image,
-                                "imagePullPolicy": "Always",
+                                "imagePullPolicy": "ifNotPresent",
                                 "name": "process",
                                 "ports": [
                                     {
