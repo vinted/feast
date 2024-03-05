@@ -714,7 +714,7 @@ def _upload_entity_df(
     else:
         raise InvalidEntityType(type(entity_df))
 
-    block_until_done(client, job)
+    block_until_done(client, job, timeout=3600)
 
     # Ensure that the table expires after some time
     table = client.get_table(table=table_name)
